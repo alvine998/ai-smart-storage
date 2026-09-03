@@ -14,7 +14,7 @@ go mod tidy
 go run ./cmd/server
 ```
 
-For an existing database, apply `migrations/001_package_quotas.sql` instead of recreating the schema.
+For an existing database, apply `migrations/002_businesses.sql`. If the database previously used package quotas, apply `migrations/003_remove_packages.sql` to remove the old package tables.
 
 The API listens on `http://localhost:8080`.
 
@@ -38,8 +38,7 @@ Feature handlers live in separate packages under `internal/http`:
 
 - `health` - health check
 - `users` - user CRUD
-- `packages` - package catalog CRUD
-- `userpackages` - user package assignment CRUD
+- `business` - optional user business profile CRUD
 - `storage` - R2 upload and download
 - `chat` - MiMo streaming chat
 - `whatsapp` - Meta webhook and reply flow
@@ -53,30 +52,10 @@ Feature handlers live in separate packages under `internal/http`:
 - `GET /v1/users/:id` to retrieve a user
 - `PUT /v1/users/:id` to update user details and optionally the password
 - `DELETE /v1/users/:id` to delete a user
-- `POST /v1/packages` to create a package with `name`, `price`, and optional `description`
-- `GET /v1/packages` to list packages
-- `GET /v1/packages/:id` to retrieve a package
-- `PUT /v1/packages/:id` to update a package
-- `DELETE /v1/packages/:id` to delete a package
-- `POST /v1/users/:id/packages` to assign a package with `package_id`, optional `status`, and `expires_at`
-- `GET /v1/users/:id/packages` to list a user's packages
-- `PUT /v1/users/:id/packages/:assignmentID` to update an assignment
-- `DELETE /v1/users/:id/packages/:assignmentID` to remove an assignment
-- Package fields `storage_limit_bytes` and `ai_token_limit` define monthly quotas. A value of `0` means unlimited; active, non-expired packages are combined.
-- Storage uploads and AI chat require the `X-User-ID` header. Uploads consume the file size; chat reserves an estimate of input tokens plus 2,048 output tokens.
-
-`X-User-ID` is a temporary identity mechanism for this template. Protect these endpoints with authentication and derive the user ID from the authenticated principal before production use.
-
-Example package payload:
-
-```json
-{
-	"name": "Pro",
-	"price": "29.00",
-	"storage_limit_bytes": 10737418240,
-	"ai_token_limit": 100000
-}
-```
+- `POST /v1/users/:id/business` to create an optional business profile
+- `GET /v1/users/:id/business` to retrieve a user's business profile
+- `PUT /v1/users/:id/business` to update a business profile
+- `DELETE /v1/users/:id/business` to remove a business profile
 - `POST /v1/storage/upload` as multipart form data with a `file` field and optional `key` field
 - `GET /v1/storage/{key}` to download an object from R2
 - `POST /v1/chat/stream` with `{"messages":[{"role":"user","content":"Hello"}]}`

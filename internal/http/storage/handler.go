@@ -2,22 +2,15 @@ package storage
 
 import (
 	"io"
-	"strconv"
 
-	"ai-smart-storage/internal/database"
 	"ai-smart-storage/internal/storage"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-type Handler struct {
-	store *storage.Store
-	quota *database.Store
-}
+type Handler struct{ store *storage.Store }
 
-func New(store *storage.Store, quota *database.Store) *Handler {
-	return &Handler{store: store, quota: quota}
-}
+func New(store *storage.Store) *Handler { return &Handler{store: store} }
 
 func (h *Handler) Register(app fiber.Router) {
 	app.Post("/v1/storage/upload", h.Upload)
@@ -32,15 +25,6 @@ func (h *Handler) Upload(c *fiber.Ctx) error {
 	key := c.FormValue("key")
 	if key == "" {
 		key = file.Filename
-	}
-	userID, err := strconv.ParseUint(c.Get("X-User-ID"), 10, 64)
-	if err != nil || userID == 0 {
-		return fiber.ErrUnauthorized
-	}
-	if err := h.quota.ReserveStorage(c.Context(), userID, uint64(file.Size)); err == database.ErrQuotaExceeded {
-		return fiber.NewError(fiber.StatusTooManyRequests, "storage quota exceeded")
-	} else if err != nil {
-		return fiber.ErrInternalServerError
 	}
 	opened, err := file.Open()
 	if err != nil {

@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS user_usage;
+DROP TABLE IF EXISTS user_packages;
+DROP TABLE IF EXISTS packages;

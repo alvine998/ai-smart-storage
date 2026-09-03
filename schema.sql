@@ -18,37 +18,18 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS packages (
+CREATE TABLE IF NOT EXISTS businesses (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(120) NOT NULL UNIQUE,
-    description TEXT NULL,
-    price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-    storage_limit_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
-    ai_token_limit BIGINT UNSIGNED NOT NULL DEFAULT 0,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS user_packages (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT UNSIGNED NOT NULL,
-    package_id BIGINT UNSIGNED NOT NULL,
-    status ENUM('active', 'paused', 'cancelled') NOT NULL DEFAULT 'active',
-    expires_at DATETIME NULL,
+    user_id BIGINT UNSIGNED NOT NULL UNIQUE,
+    legal_name VARCHAR(160) NOT NULL,
+    display_name VARCHAR(160) NULL,
+    tax_id VARCHAR(80) NULL,
+    phone_number VARCHAR(32) NULL,
+    email VARCHAR(255) NULL,
+    website VARCHAR(255) NULL,
+    address TEXT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_user_package (user_id, package_id),
-    CONSTRAINT fk_user_packages_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_user_packages_package FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE,
-    INDEX idx_user_packages_user (user_id),
-    INDEX idx_user_packages_package (package_id)
+    CONSTRAINT fk_businesses_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS user_usage (
-    user_id BIGINT UNSIGNED NOT NULL,
-    usage_month DATE NOT NULL,
-    storage_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
-    ai_tokens BIGINT UNSIGNED NOT NULL DEFAULT 0,
-    PRIMARY KEY (user_id, usage_month),
-    CONSTRAINT fk_user_usage_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
