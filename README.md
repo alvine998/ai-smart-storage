@@ -14,7 +14,7 @@ go mod tidy
 go run ./cmd/server
 ```
 
-For an existing database, apply `migrations/002_businesses.sql`. If the database previously used package quotas, apply `migrations/003_remove_packages.sql` to remove the old package tables.
+For an existing database, apply `migrations/002_businesses.sql` and `migrations/004_billing.sql`. If the database previously used package quotas, apply `migrations/003_remove_packages.sql` before `migrations/004_billing.sql` to remove the old package tables.
 
 The API listens on `http://localhost:8080`.
 
@@ -39,6 +39,9 @@ Feature handlers live in separate packages under `internal/http`:
 - `health` - health check
 - `users` - user CRUD
 - `business` - optional user business profile CRUD
+- `plans` - plan CRUD and quota definitions
+- `subscriptions` - subscription CRUD
+- `invoices` - invoice CRUD
 - `storage` - R2 upload and download
 - `chat` - MiMo streaming chat
 - `whatsapp` - Meta webhook and reply flow
@@ -56,6 +59,21 @@ Feature handlers live in separate packages under `internal/http`:
 - `GET /v1/users/:id/business` to retrieve a user's business profile
 - `PUT /v1/users/:id/business` to update a business profile
 - `DELETE /v1/users/:id/business` to remove a business profile
+- `POST /v1/plans` to create a plan
+- `GET /v1/plans` to list plans
+- `GET /v1/plans/:id` to retrieve a plan
+- `PUT /v1/plans/:id` to update a plan
+- `DELETE /v1/plans/:id` to delete a plan
+- `POST /v1/subscriptions` to create a subscription
+- `GET /v1/subscriptions` to list subscriptions
+- `GET /v1/subscriptions/:id` to retrieve a subscription
+- `PUT /v1/subscriptions/:id` to update a subscription
+- `DELETE /v1/subscriptions/:id` to delete a subscription
+- `POST /v1/invoices` to create an invoice
+- `GET /v1/invoices` to list invoices
+- `GET /v1/invoices/:id` to retrieve an invoice
+- `PUT /v1/invoices/:id` to update an invoice
+- `DELETE /v1/invoices/:id` to delete an invoice
 - `POST /v1/storage/upload` as multipart form data with a `file` field and optional `key` field
 - `GET /v1/storage/{key}` to download an object from R2
 - `POST /v1/chat/stream` with `{"messages":[{"role":"user","content":"Hello"}]}`
@@ -70,3 +88,5 @@ Feature handlers live in separate packages under `internal/http`:
 - Put the webhook behind HTTPS in production and set `WHATSAPP_APP_SECRET` so Meta signatures are verified.
 - Create an R2 API token with Object Read & Write permissions, then set its access key ID and secret in `.env`.
 - `R2_PUBLIC_URL` is optional. Set it to a configured R2 custom domain or public bucket URL if upload responses should include a public URL; otherwise the API returns an empty URL and objects remain private.
+
+Plan names are `Starter`, `Business`, or `Enterprise`. Subscription statuses are `active`, `past_due`, or `canceled`. Invoice statuses are `paid`, `pending`, or `failed`.

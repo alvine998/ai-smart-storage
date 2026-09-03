@@ -10,8 +10,11 @@ import (
 	"ai-smart-storage/internal/http/business"
 	"ai-smart-storage/internal/http/chat"
 	"ai-smart-storage/internal/http/health"
+	"ai-smart-storage/internal/http/invoices"
 	"ai-smart-storage/internal/http/middleware"
+	"ai-smart-storage/internal/http/plans"
 	"ai-smart-storage/internal/http/storage"
+	"ai-smart-storage/internal/http/subscriptions"
 	"ai-smart-storage/internal/http/users"
 	whatsapphttp "ai-smart-storage/internal/http/whatsapp"
 	r2storage "ai-smart-storage/internal/storage"
@@ -46,6 +49,9 @@ func main() {
 	health.New().Register(app)
 	users.New(store).Register(app)
 	business.New(store).Register(app)
+	plans.New(store).Register(app)
+	subscriptions.New(store).Register(app)
+	invoices.New(store).Register(app)
 	storage.New(r2).Register(app)
 	chat.New(aiClient).Register(app)
 	whatsapphttp.New(aiClient, store, wa).Register(app)

@@ -1,38 +1,3 @@
-CREATE TABLE IF NOT EXISTS messages (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    wa_message_id VARCHAR(128) NULL UNIQUE,
-    phone_number VARCHAR(32) NOT NULL,
-    role ENUM('user', 'assistant', 'system') NOT NULL,
-    content LONGTEXT NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_messages_phone_created (phone_number, created_at)
-);
-
-CREATE TABLE IF NOT EXISTS users (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(120) NOT NULL,
-    email VARCHAR(255) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    phone_number VARCHAR(32) NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS businesses (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT UNSIGNED NOT NULL UNIQUE,
-    legal_name VARCHAR(160) NOT NULL,
-    display_name VARCHAR(160) NULL,
-    tax_id VARCHAR(80) NULL,
-    phone_number VARCHAR(32) NULL,
-    email VARCHAR(255) NULL,
-    website VARCHAR(255) NULL,
-    address TEXT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT fk_businesses_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS plans (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     name ENUM('Starter', 'Business', 'Enterprise') NOT NULL UNIQUE,
@@ -74,4 +39,3 @@ CREATE TABLE IF NOT EXISTS invoices (
     INDEX idx_invoices_user (user_id),
     INDEX idx_invoices_subscription (subscription_id)
 );
-
