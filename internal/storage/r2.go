@@ -1,0 +1,82 @@
+package storage
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+)
+
+type Config struct {
+	Endpoint        string
+	AccessKeyID     string
+	SecretAccessKey string
+	Bucket          string
+	PublicURL       string
+}
+
+type Store struct {
+	client    *minio.Client
+	bucket    string
+	publicURL string
+}
+
+type Object struct {
+	*minio.Object
+	ContentType string
+}
+
+func New(config Config) (*Store, error) {
+	if config.Endpoint == "" || config.AccessKeyID == "" || config.SecretAccessKey == "" {
+		return nil, fmt.Errorf("R2_ENDPOINT, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY are required")
+	}
+	parsed, err := url.Parse(config.Endpoint)
+	if err != nil || parsed.Host == "" {
+		return nil, fmt.Errorf("invalid R2_ENDPOINT")
+	}
+	client, err := minio.New(parsed.Host, &minio.Options{
+		Creds:  credentials.NewStaticV4(config.AccessKeyID, config.SecretAccessKey, ""),
+		Secure: parsed.Scheme != "http",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Store{client: client, bucket: config.Bucket, publicURL: strings.TrimRight(config.PublicURL, "/")}, nil
+}
+
+func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64, contentType string) error {
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	_, err := s.client.PutObject(ctx, s.bucket, key, body, size, minio.PutObjectOptions{ContentType: contentType})
+	return err
+}
+
+func (s *Store) Get(ctx context.Context, key string) (*Object, error) {
+	object, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	info, err := object.Stat()
+	if err != nil {
+		object.Close()
+		return nil, err
+	}
+	return &Object{Object: object, ContentType: info.ContentType}, nil
+}
+
+func (s *Store) PublicURL(key string) string {
+	if s.publicURL == "" {
+		return ""
+	}
+	return s.publicURL + "/" + strings.TrimLeft(key, "/")
+}
+
+func (s *Store) PresignedURL(ctx context.Context, key string, expiry time.Duration) (*url.URL, error) {
+	return s.client.PresignedGetObject(ctx, s.bucket, key, expiry, nil)
+}
