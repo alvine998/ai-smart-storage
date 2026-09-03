@@ -5,49 +5,59 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"ai-smart-storage/internal/ai"
 	"ai-smart-storage/internal/database"
+	"ai-smart-storage/internal/http/middleware"
+	phoneutil "ai-smart-storage/internal/phone"
 	service "ai-smart-storage/internal/whatsapp"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
+	"github.com/redis/go-redis/v9"
 )
 
 type Handler struct {
-	ai          *ai.Client
-	store       *database.Store
-	wa          *service.Service
-	signupURL   string
-	cacheTTL    time.Duration
-	cacheMu     sync.Mutex
-	accessCache map[string]cachedAccess
+	ai        *ai.Client
+	store     *database.Store
+	wa        *service.Service
+	signupURL string
+	cacheTTL  time.Duration
+	redis     *redis.Client
 }
 
-type cachedAccess struct {
-	access    database.WhatsAppAccess
-	expiresAt time.Time
-}
-
-func New(aiClient *ai.Client, store *database.Store, wa *service.Service, signupURL string) *Handler {
-	return &Handler{ai: aiClient, store: store, wa: wa, signupURL: signupURL, cacheTTL: 3 * time.Minute, accessCache: make(map[string]cachedAccess)}
+func New(aiClient *ai.Client, store *database.Store, wa *service.Service, signupURL string, redisClient *redis.Client) *Handler {
+	return &Handler{ai: aiClient, store: store, wa: wa, signupURL: signupURL, redis: redisClient}
 }
 
 func (h *Handler) Register(app fiber.Router) {
 	app.Get("/webhooks/whatsapp", h.Verify)
-	app.Post("/webhooks/whatsapp", h.Receive)
+	app.Post("/webhooks/whatsapp", limiter.New(limiter.Config{Max: 120, Expiration: time.Minute}), h.Receive)
+}
+
+func (h *Handler) RegisterProtected(app fiber.Router) {
 	app.Get("/v1/wa-conversations", h.ListConversations)
 }
 
 func (h *Handler) ListConversations(c *fiber.Ctx) error {
-	userID, err := strconv.ParseUint(c.Query("user_id"), 10, 64)
-	if err != nil || userID == 0 {
-		return fiber.NewError(fiber.StatusBadRequest, "user_id is required")
+	userID, err := middleware.SelfID(c, c.Query("user_id"))
+	if err != nil {
+		return err
 	}
-	items, err := h.store.WAConversations(c.Context(), userID)
+	if h.store == nil {
+		return fiber.ErrInternalServerError
+	}
+	limit := 20
+	if l := c.QueryInt("limit", 20); l > 0 && l <= 100 {
+		limit = l
+	}
+	offset := c.QueryInt("offset", 0)
+	if offset < 0 {
+		offset = 0
+	}
+	items, err := h.store.WAConversations(c.Context(), userID, limit, offset)
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
@@ -55,6 +65,9 @@ func (h *Handler) ListConversations(c *fiber.Ctx) error {
 }
 
 func (h *Handler) Verify(c *fiber.Ctx) error {
+	if h.wa == nil {
+		return fiber.ErrInternalServerError
+	}
 	challenge, err := h.wa.Verify(c.Query("hub.mode"), c.Query("hub.challenge"), c.Query("hub.verify_token"))
 	if err != nil {
 		return fiber.ErrForbidden
@@ -63,6 +76,9 @@ func (h *Handler) Verify(c *fiber.Ctx) error {
 }
 
 func (h *Handler) Receive(c *fiber.Ctx) error {
+	if h.wa == nil {
+		return fiber.ErrInternalServerError
+	}
 	body := c.Body()
 	if !h.wa.ValidSignature(body, c.Get("X-Hub-Signature-256")) {
 		return fiber.ErrUnauthorized
@@ -84,7 +100,13 @@ func (h *Handler) Receive(c *fiber.Ctx) error {
 }
 
 func (h *Handler) reply(id, phone, text string) {
-	ctx := context.Background()
+	phone = phoneutil.Normalize(phone)
+	if h.store == nil {
+		log.Printf("whatsapp reply: store not configured")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	access, err := h.whatsAppAccess(ctx, phone)
 	if errors.Is(err, database.ErrWhatsAppAccessNotFound) {
 		h.sendNotice(ctx, phone, "Number not registered. Sign up: "+h.signupURL)
@@ -112,6 +134,18 @@ func (h *Handler) reply(id, phone, text string) {
 		log.Printf("save inbound message: %v", err)
 		return
 	}
+	if err := h.store.CheckQuota(ctx, userID, 0, 0, 1, 0); err != nil {
+		if errors.Is(err, database.ErrQuotaExceeded) {
+			h.sendNotice(ctx, phone, "Your AI query quota has been reached. Please upgrade your plan: "+h.signupURL)
+			return
+		}
+		if errors.Is(err, database.ErrWhatsAppAccessNotFound) {
+			h.sendNotice(ctx, phone, "Your subscription has expired. Please renew: "+h.signupURL)
+			return
+		}
+		log.Printf("check AI quota: %v", err)
+		return
+	}
 	if err := h.store.IncrementUsageQuota(ctx, userID, "0", 0, 1, 0); err != nil {
 		log.Printf("reserve AI query usage: %v", err)
 		return
@@ -126,6 +160,10 @@ func (h *Handler) reply(id, phone, text string) {
 		messages[i] = ai.Message{Role: item.Role, Content: item.Content}
 	}
 	var response strings.Builder
+	if h.ai == nil {
+		log.Printf("stream AI reply: AI client not configured")
+		return
+	}
 	if err := h.ai.Stream(ctx, messages, func(part string) error { response.WriteString(part); return nil }); err != nil {
 		log.Printf("stream AI reply: %v", err)
 		return
@@ -136,6 +174,10 @@ func (h *Handler) reply(id, phone, text string) {
 	}
 	if err := h.store.SaveMessage(ctx, "", phone, "assistant", response.String()); err != nil {
 		log.Printf("save AI message: %v", err)
+		return
+	}
+	if h.wa == nil {
+		log.Printf("send WhatsApp message: WA client not configured")
 		return
 	}
 	if err := h.wa.SendText(ctx, phone, response.String()); err != nil {
@@ -153,32 +195,56 @@ func (h *Handler) reply(id, phone, text string) {
 	if err := h.store.LogWAConversation(ctx, database.WAConversation{UserID: userID, Direction: "outbound", MessageType: "text", Category: category, Content: response.String(), Cost: "0"}); err != nil {
 		log.Printf("log outbound WhatsApp message: %v", err)
 	}
-	if err := h.store.IncrementUsageQuota(ctx, userID, "0", 0, 0, 1); err != nil {
+	if err := h.store.CheckQuota(ctx, userID, 0, 0, 0, 1); err != nil {
+		if errors.Is(err, database.ErrQuotaExceeded) {
+			log.Printf("outbound WA quota exceeded: %v", err)
+		} else {
+			log.Printf("check outbound WA quota: %v", err)
+		}
+	} else if err := h.store.IncrementUsageQuota(ctx, userID, "0", 0, 0, 1); err != nil {
 		log.Printf("increment outbound WhatsApp usage: %v", err)
 	}
 }
 
 func (h *Handler) whatsAppAccess(ctx context.Context, phone string) (database.WhatsAppAccess, error) {
-	now := time.Now().UTC()
-	h.cacheMu.Lock()
-	item, ok := h.accessCache[phone]
-	if ok && now.Before(item.expiresAt) {
-		h.cacheMu.Unlock()
-		return item.access, nil
+	phone = phoneutil.Normalize(phone)
+	if h.store == nil {
+		return database.WhatsAppAccess{}, database.ErrWhatsAppAccessNotFound
 	}
-	h.cacheMu.Unlock()
+	now := time.Now().UTC()
+	key := "whatsapp:access:" + phone
+	if h.redis != nil {
+		cached, err := h.redis.Get(ctx, key).Result()
+		if err == nil {
+			var access database.WhatsAppAccess
+			if json.Unmarshal([]byte(cached), &access) == nil {
+				return access, nil
+			}
+		} else if !errors.Is(err, redis.Nil) {
+			log.Printf("read WhatsApp access cache: %v", err)
+		}
+	}
 
 	access, err := h.store.WhatsAppAccess(ctx, phone, now)
 	if err != nil {
 		return database.WhatsAppAccess{}, err
 	}
-	h.cacheMu.Lock()
-	h.accessCache[phone] = cachedAccess{access: access, expiresAt: now.Add(h.cacheTTL)}
-	h.cacheMu.Unlock()
+	if h.redis != nil {
+		if encoded, marshalErr := json.Marshal(access); marshalErr == nil {
+			if cacheErr := h.redis.Set(ctx, key, encoded, 3*time.Minute).Err(); cacheErr != nil {
+				log.Printf("write WhatsApp access cache: %v", cacheErr)
+			}
+		}
+	}
 	return access, nil
 }
 
 func (h *Handler) sendNotice(ctx context.Context, phone, text string) {
+	phone = phoneutil.Normalize(phone)
+	if h.wa == nil {
+		log.Printf("send WhatsApp notice: WA client not configured")
+		return
+	}
 	if err := h.wa.SendText(ctx, phone, text); err != nil {
 		log.Printf("send WhatsApp notice: %v", err)
 	}

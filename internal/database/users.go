@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+
+	"ai-smart-storage/internal/phone"
 )
 
 var ErrUserNotFound = errors.New("user not found")
@@ -19,6 +21,7 @@ type User struct {
 }
 
 func (s *Store) CreateUser(ctx context.Context, user User) (User, error) {
+	user.PhoneNumber = phone.Normalize(user.PhoneNumber)
 	result, err := s.db.ExecContext(ctx, `INSERT INTO users (name, email, password_hash, phone_number) VALUES (?, ?, ?, NULLIF(?, ''))`, user.Name, user.Email, user.PasswordHash, user.PhoneNumber)
 	if err != nil {
 		return User{}, err
@@ -47,6 +50,20 @@ func (s *Store) Users(ctx context.Context) ([]User, error) {
 	return users, rows.Err()
 }
 
+func (s *Store) UserByEmail(ctx context.Context, email string) (User, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, name, email, password_hash, phone_number, created_at, updated_at FROM users WHERE email = ?`, email)
+	var user User
+	var phoneNumber sql.NullString
+	err := row.Scan(&user.ID, &user.Name, &user.Email, &user.PasswordHash, &phoneNumber, &user.CreatedAt, &user.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, ErrUserNotFound
+	}
+	if phoneNumber.Valid {
+		user.PhoneNumber = phoneNumber.String
+	}
+	return user, err
+}
+
 func (s *Store) User(ctx context.Context, id uint64) (User, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id, name, email, phone_number, created_at, updated_at FROM users WHERE id = ?`, id)
 	user, err := scanUser(row)
@@ -57,6 +74,7 @@ func (s *Store) User(ctx context.Context, id uint64) (User, error) {
 }
 
 func (s *Store) UpdateUser(ctx context.Context, user User) (User, error) {
+	user.PhoneNumber = phone.Normalize(user.PhoneNumber)
 	result, err := s.db.ExecContext(ctx, `UPDATE users SET name = ?, email = ?, phone_number = NULLIF(?, '') WHERE id = ?`, user.Name, user.Email, user.PhoneNumber, user.ID)
 	if err != nil {
 		return User{}, err

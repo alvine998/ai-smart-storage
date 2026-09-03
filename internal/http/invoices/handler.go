@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"ai-smart-storage/internal/database"
+	"ai-smart-storage/internal/http/middleware"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -33,7 +34,10 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&value); err != nil || value.UserID == 0 || value.SubscriptionID == 0 || value.Amount == "" || !validStatus(value.Status) {
 		return fiber.NewError(fiber.StatusBadRequest, "user_id, subscription_id, amount, and a valid status are required")
 	}
-	item, err := h.store.CreateInvoice(c.Context(), database.Invoice{UserID: value.UserID, SubscriptionID: value.SubscriptionID, Amount: value.Amount, Status: value.Status, PaymentMethod: value.PaymentMethod, PaidAt: value.PaidAt})
+	if value.UserID != middleware.UserID(c) {
+		return fiber.NewError(fiber.StatusForbidden, "user_id does not match the authenticated user")
+	}
+	item, err := h.store.CreateInvoice(c.Context(), database.Invoice{UserID: middleware.UserID(c), SubscriptionID: value.SubscriptionID, Amount: value.Amount, Status: value.Status, PaymentMethod: value.PaymentMethod, PaidAt: value.PaidAt})
 	if err != nil {
 		return fiber.ErrConflict
 	}
@@ -41,11 +45,7 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 }
 
 func (h *Handler) List(c *fiber.Ctx) error {
-	items, err := h.store.Invoices(c.Context())
-	if err != nil {
-		return fiber.ErrInternalServerError
-	}
-	return c.JSON(items)
+	return fiber.NewError(fiber.StatusForbidden, "listing all invoices requires admin access")
 }
 
 func (h *Handler) Get(c *fiber.Ctx) error {
@@ -53,12 +53,9 @@ func (h *Handler) Get(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.ErrBadRequest
 	}
-	item, err := h.store.Invoice(c.Context(), id)
-	if err == database.ErrInvoiceNotFound {
-		return fiber.ErrNotFound
-	}
+	item, err := h.ownedInvoice(c, id)
 	if err != nil {
-		return fiber.ErrInternalServerError
+		return err
 	}
 	return c.JSON(item)
 }
@@ -71,6 +68,12 @@ func (h *Handler) Update(c *fiber.Ctx) error {
 	var value input
 	if err := c.BodyParser(&value); err != nil || value.UserID == 0 || value.SubscriptionID == 0 || value.Amount == "" || !validStatus(value.Status) {
 		return fiber.NewError(fiber.StatusBadRequest, "user_id, subscription_id, amount, and a valid status are required")
+	}
+	if value.UserID != middleware.UserID(c) {
+		return fiber.NewError(fiber.StatusForbidden, "user_id does not match the authenticated user")
+	}
+	if _, err := h.ownedInvoice(c, id); err != nil {
+		return err
 	}
 	item, err := h.store.UpdateInvoice(c.Context(), database.Invoice{ID: id, UserID: value.UserID, SubscriptionID: value.SubscriptionID, Amount: value.Amount, Status: value.Status, PaymentMethod: value.PaymentMethod, PaidAt: value.PaidAt})
 	if err == database.ErrInvoiceNotFound {
@@ -87,12 +90,29 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.ErrBadRequest
 	}
+	if _, err := h.ownedInvoice(c, id); err != nil {
+		return err
+	}
 	if err := h.store.DeleteInvoice(c.Context(), id); err == database.ErrInvoiceNotFound {
 		return fiber.ErrNotFound
 	} else if err != nil {
 		return fiber.ErrConflict
 	}
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (h *Handler) ownedInvoice(c *fiber.Ctx, id uint64) (database.Invoice, error) {
+	item, err := h.store.Invoice(c.Context(), id)
+	if err == database.ErrInvoiceNotFound {
+		return database.Invoice{}, fiber.ErrNotFound
+	}
+	if err != nil {
+		return database.Invoice{}, fiber.ErrInternalServerError
+	}
+	if item.UserID != middleware.UserID(c) {
+		return database.Invoice{}, fiber.ErrNotFound
+	}
+	return item, nil
 }
 
 func validStatus(status string) bool {

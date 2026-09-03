@@ -1,18 +1,19 @@
-package users
+package auth
 
 import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-func TestCreateRejectsWeakPassword(t *testing.T) {
+func TestLoginRequiresCredentials(t *testing.T) {
 	app := fiber.New()
-	New(nil).RegisterPublic(app)
+	New(nil, "secret", time.Hour).Register(app)
 
-	request := httptest.NewRequest("POST", "/v1/users", strings.NewReader(`{"name":"Test User","email":"test@example.com","password":"short"}`))
+	request := httptest.NewRequest("POST", "/v1/auth/login", strings.NewReader(`{}`))
 	request.Header.Set("Content-Type", "application/json")
 	response, err := app.Test(request)
 	if err != nil {

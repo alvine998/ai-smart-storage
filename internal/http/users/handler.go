@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"ai-smart-storage/internal/database"
+	"ai-smart-storage/internal/http/middleware"
 	"github.com/gofiber/fiber/v2"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -13,11 +14,14 @@ type Handler struct{ store *database.Store }
 func New(store *database.Store) *Handler { return &Handler{store: store} }
 
 func (h *Handler) Register(app fiber.Router) {
-	app.Post("/v1/users", h.Create)
 	app.Get("/v1/users", h.List)
 	app.Get("/v1/users/:id", h.Get)
 	app.Put("/v1/users/:id", h.Update)
 	app.Delete("/v1/users/:id", h.Delete)
+}
+
+func (h *Handler) RegisterPublic(app fiber.Router) {
+	app.Post("/v1/users", h.Create)
 }
 
 type input struct {
@@ -44,17 +48,16 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 }
 
 func (h *Handler) List(c *fiber.Ctx) error {
-	users, err := h.store.Users(c.Context())
-	if err != nil {
-		return fiber.ErrInternalServerError
-	}
-	return c.JSON(users)
+	return fiber.NewError(fiber.StatusForbidden, "listing all users requires admin access")
 }
 
 func (h *Handler) Get(c *fiber.Ctx) error {
 	id, err := idParam(c)
 	if err != nil {
 		return fiber.ErrBadRequest
+	}
+	if id != middleware.UserID(c) {
+		return fiber.NewError(fiber.StatusForbidden, "you can only access your own user record")
 	}
 	user, err := h.store.User(c.Context(), id)
 	if err == database.ErrUserNotFound {
@@ -70,6 +73,9 @@ func (h *Handler) Update(c *fiber.Ctx) error {
 	id, err := idParam(c)
 	if err != nil {
 		return fiber.ErrBadRequest
+	}
+	if id != middleware.UserID(c) {
+		return fiber.NewError(fiber.StatusForbidden, "you can only update your own user record")
 	}
 	var value input
 	if err := c.BodyParser(&value); err != nil || value.Name == "" || value.Email == "" {
@@ -101,6 +107,9 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 	id, err := idParam(c)
 	if err != nil {
 		return fiber.ErrBadRequest
+	}
+	if id != middleware.UserID(c) {
+		return fiber.NewError(fiber.StatusForbidden, "you can only delete your own user record")
 	}
 	if err := h.store.DeleteUser(c.Context(), id); err == database.ErrUserNotFound {
 		return fiber.ErrNotFound

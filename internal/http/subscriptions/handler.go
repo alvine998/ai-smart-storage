@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"ai-smart-storage/internal/database"
+	"ai-smart-storage/internal/http/middleware"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -32,7 +33,10 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&value); err != nil || !validStatus(value.Status) || value.UserID == 0 || value.PlanID == 0 || value.CurrentPeriodStart == "" || value.CurrentPeriodEnd == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "user_id, plan_id, status, current_period_start, and current_period_end are required")
 	}
-	item, err := h.store.CreateSubscription(c.Context(), database.Subscription{UserID: value.UserID, PlanID: value.PlanID, Status: value.Status, CurrentPeriodStart: value.CurrentPeriodStart, CurrentPeriodEnd: value.CurrentPeriodEnd})
+	if value.UserID != middleware.UserID(c) {
+		return fiber.NewError(fiber.StatusForbidden, "user_id does not match the authenticated user")
+	}
+	item, err := h.store.CreateSubscription(c.Context(), database.Subscription{UserID: middleware.UserID(c), PlanID: value.PlanID, Status: value.Status, CurrentPeriodStart: value.CurrentPeriodStart, CurrentPeriodEnd: value.CurrentPeriodEnd})
 	if err != nil {
 		return fiber.ErrConflict
 	}
@@ -40,11 +44,7 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 }
 
 func (h *Handler) List(c *fiber.Ctx) error {
-	items, err := h.store.Subscriptions(c.Context())
-	if err != nil {
-		return fiber.ErrInternalServerError
-	}
-	return c.JSON(items)
+	return fiber.NewError(fiber.StatusForbidden, "listing all subscriptions requires admin access")
 }
 
 func (h *Handler) Get(c *fiber.Ctx) error {
@@ -52,12 +52,9 @@ func (h *Handler) Get(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.ErrBadRequest
 	}
-	item, err := h.store.Subscription(c.Context(), id)
-	if err == database.ErrSubscriptionNotFound {
-		return fiber.ErrNotFound
-	}
+	item, err := h.ownedSubscription(c, id)
 	if err != nil {
-		return fiber.ErrInternalServerError
+		return err
 	}
 	return c.JSON(item)
 }
@@ -70,6 +67,12 @@ func (h *Handler) Update(c *fiber.Ctx) error {
 	var value input
 	if err := c.BodyParser(&value); err != nil || !validStatus(value.Status) || value.UserID == 0 || value.PlanID == 0 || value.CurrentPeriodStart == "" || value.CurrentPeriodEnd == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "user_id, plan_id, status, current_period_start, and current_period_end are required")
+	}
+	if value.UserID != middleware.UserID(c) {
+		return fiber.NewError(fiber.StatusForbidden, "user_id does not match the authenticated user")
+	}
+	if _, err := h.ownedSubscription(c, id); err != nil {
+		return err
 	}
 	item, err := h.store.UpdateSubscription(c.Context(), database.Subscription{ID: id, UserID: value.UserID, PlanID: value.PlanID, Status: value.Status, CurrentPeriodStart: value.CurrentPeriodStart, CurrentPeriodEnd: value.CurrentPeriodEnd})
 	if err == database.ErrSubscriptionNotFound {
@@ -86,12 +89,29 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.ErrBadRequest
 	}
+	if _, err := h.ownedSubscription(c, id); err != nil {
+		return err
+	}
 	if err := h.store.DeleteSubscription(c.Context(), id); err == database.ErrSubscriptionNotFound {
 		return fiber.ErrNotFound
 	} else if err != nil {
 		return fiber.ErrConflict
 	}
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (h *Handler) ownedSubscription(c *fiber.Ctx, id uint64) (database.Subscription, error) {
+	item, err := h.store.Subscription(c.Context(), id)
+	if err == database.ErrSubscriptionNotFound {
+		return database.Subscription{}, fiber.ErrNotFound
+	}
+	if err != nil {
+		return database.Subscription{}, fiber.ErrInternalServerError
+	}
+	if item.UserID != middleware.UserID(c) {
+		return database.Subscription{}, fiber.ErrNotFound
+	}
+	return item, nil
 }
 
 func validStatus(status string) bool {

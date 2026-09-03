@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"ai-smart-storage/internal/database"
+	"ai-smart-storage/internal/http/middleware"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -29,13 +30,13 @@ type input struct {
 }
 
 func (h *Handler) Create(c *fiber.Ctx) error {
-	userID, err := parseUserID(c)
-	if err != nil {
-		return fiber.ErrBadRequest
-	}
 	var value input
 	if err := c.BodyParser(&value); err != nil || value.LegalName == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "legal_name is required")
+	}
+	userID, err := h.selfUserID(c)
+	if err != nil {
+		return err
 	}
 	business, err := h.store.CreateBusiness(c.Context(), toBusiness(userID, 0, value))
 	if err != nil {
@@ -45,9 +46,9 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 }
 
 func (h *Handler) Get(c *fiber.Ctx) error {
-	userID, err := parseUserID(c)
+	userID, err := h.selfUserID(c)
 	if err != nil {
-		return fiber.ErrBadRequest
+		return err
 	}
 	business, err := h.store.UserBusiness(c.Context(), userID)
 	if err == database.ErrBusinessNotFound {
@@ -60,9 +61,9 @@ func (h *Handler) Get(c *fiber.Ctx) error {
 }
 
 func (h *Handler) Update(c *fiber.Ctx) error {
-	userID, err := parseUserID(c)
+	userID, err := h.selfUserID(c)
 	if err != nil {
-		return fiber.ErrBadRequest
+		return err
 	}
 	business, err := h.store.UserBusiness(c.Context(), userID)
 	if err == database.ErrBusinessNotFound {
@@ -86,9 +87,9 @@ func (h *Handler) Update(c *fiber.Ctx) error {
 }
 
 func (h *Handler) Delete(c *fiber.Ctx) error {
-	userID, err := parseUserID(c)
+	userID, err := h.selfUserID(c)
 	if err != nil {
-		return fiber.ErrBadRequest
+		return err
 	}
 	business, err := h.store.UserBusiness(c.Context(), userID)
 	if err == database.ErrBusinessNotFound {
@@ -101,6 +102,17 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 		return fiber.ErrInternalServerError
 	}
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (h *Handler) selfUserID(c *fiber.Ctx) (uint64, error) {
+	id, err := parseUserID(c)
+	if err != nil {
+		return 0, err
+	}
+	if id != middleware.UserID(c) {
+		return 0, fiber.NewError(fiber.StatusForbidden, "you can only access your own business profile")
+	}
+	return id, nil
 }
 
 func parseUserID(c *fiber.Ctx) (uint64, error) { return strconv.ParseUint(c.Params("id"), 10, 64) }

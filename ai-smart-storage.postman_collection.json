@@ -5,8 +5,10 @@
     "description": "Requests for the AI Smart Storage Go API. Set collection variables before running requests.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
+  "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "token", "value": "" },
     { "key": "userId", "value": "1" },
     { "key": "documentId", "value": "1" },
     { "key": "tagId", "value": "1" },
@@ -20,6 +22,12 @@
     { "key": "whatsappSignature", "value": "sha256=replace-with-hmac" }
   ],
   "item": [
+    {
+      "name": "Auth",
+      "item": [
+        { "name": "Login", "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [ "if (pm.response.code === 200) {", "  pm.collectionVariables.set('token', pm.response.json().token);", "}" ] } } ], "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "body": { "mode": "raw", "raw": "{\n  \"email\": \"ada@example.com\",\n  \"password\": \"password123\"\n}" }, "url": "{{baseUrl}}/v1/auth/login" } }
+      ]
+    },
     {
       "name": "Health",
       "item": [

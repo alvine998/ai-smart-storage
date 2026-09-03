@@ -21,8 +21,17 @@ func (s *Store) CreateAIProcessingLog(ctx context.Context, logEntry AIProcessing
 	return err
 }
 
-func (s *Store) AIProcessingLogs(ctx context.Context, userID uint64) ([]AIProcessingLog, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, user_id, document_id, action_type, input_tokens, output_tokens, estimated_cost, created_at FROM ai_processing_logs WHERE user_id = ? ORDER BY id DESC`, userID)
+func (s *Store) AIProcessingLogs(ctx context.Context, userID uint64, limit int, offset int) ([]AIProcessingLog, error) {
+	if limit <= 0 {
+		limit = 20 // default page size
+	}
+	if limit > 100 {
+		limit = 100 // max page size
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, user_id, document_id, action_type, input_tokens, output_tokens, estimated_cost, created_at FROM ai_processing_logs WHERE user_id = ? ORDER BY id DESC LIMIT ? OFFSET ?`, userID, limit, offset)
 	if err != nil {
 		return nil, err
 	}

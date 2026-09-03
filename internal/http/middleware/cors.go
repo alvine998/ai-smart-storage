@@ -5,9 +5,12 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 )
 
-func OpenCORS() fiber.Handler {
+func CORS(allowedOrigins string) fiber.Handler {
+	if allowedOrigins == "" {
+		allowedOrigins = "*"
+	}
 	return cors.New(cors.Config{
-		AllowOrigins: "*",
+		AllowOrigins: allowedOrigins,
 		AllowMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS",
 		AllowHeaders: "*",
 	})

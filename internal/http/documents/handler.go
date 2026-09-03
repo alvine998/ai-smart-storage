@@ -2,15 +2,19 @@ package documents
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"ai-smart-storage/internal/database"
+	"ai-smart-storage/internal/http/middleware"
 	r2storage "ai-smart-storage/internal/storage"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/google/uuid"
 )
 
@@ -22,7 +26,13 @@ type Handler struct {
 func New(store *database.Store, r2 *r2storage.Store) *Handler { return &Handler{store: store, r2: r2} }
 
 func (h *Handler) Register(app fiber.Router) {
-	app.Post("/v1/documents", h.Create)
+	app.Post("/v1/documents", limiter.New(limiter.Config{
+		Max:        20,
+		Expiration: time.Minute,
+		KeyGenerator: func(c *fiber.Ctx) string {
+			return strconv.FormatUint(middleware.UserID(c), 10)
+		},
+	}), h.Create)
 	app.Get("/v1/documents", h.List)
 	app.Get("/v1/documents/:id", h.Get)
 	app.Put("/v1/documents/:id", h.Update)
@@ -39,9 +49,9 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.ErrBadRequest
 	}
-	userID, err := strconv.ParseUint(c.FormValue("user_id"), 10, 64)
-	if err != nil || userID == 0 {
-		return fiber.NewError(fiber.StatusBadRequest, "user_id is required")
+	userID, err := middleware.SelfID(c, c.FormValue("user_id"))
+	if err != nil {
+		return err
 	}
 	uploadedVia := c.FormValue("uploaded_via")
 	if uploadedVia == "" {
@@ -49,6 +59,18 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 	}
 	if uploadedVia != "web" && uploadedVia != "whatsapp" {
 		return fiber.NewError(fiber.StatusBadRequest, "uploaded_via must be web or whatsapp")
+	}
+	if h.store != nil {
+		storageGB := float64(file.Size) / math.Pow10(9)
+		if err := h.store.CheckQuota(c.Context(), userID, storageGB, 0, 0, 0); err != nil {
+			if errors.Is(err, database.ErrQuotaExceeded) {
+				return fiber.NewError(fiber.StatusTooManyRequests, "storage quota exceeded")
+			}
+			if errors.Is(err, database.ErrWhatsAppAccessNotFound) {
+				return fiber.NewError(fiber.StatusForbidden, "subscription required or expired")
+			}
+			return fiber.ErrInternalServerError
+		}
 	}
 	key := fmt.Sprintf("smart-storage/%d/%s/%s", userID, uuid.NewString(), sanitizeName(file.Filename))
 	opened, err := file.Open()
@@ -70,7 +92,7 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 	document, err := h.store.CreateDocument(c.Context(), database.Document{UserID: userID, FileName: file.Filename, R2Key: key, FileSize: uint64(file.Size), MimeType: file.Header.Get("Content-Type"), Category: c.FormValue("category"), Summary: c.FormValue("summary"), Metadata: metadata, UploadedVia: uploadedVia})
 	if err != nil {
 		_ = h.r2.Delete(c.Context(), key)
-		return fiber.ErrConflict
+		return fiber.ErrInternalServerError
 	}
 	if err := h.store.IncrementUsageQuota(c.Context(), userID, fmt.Sprintf("%.6f", float64(file.Size)/math.Pow10(9)), 0, 0, 0); err != nil {
 		return fiber.ErrInternalServerError
@@ -79,11 +101,19 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 }
 
 func (h *Handler) List(c *fiber.Ctx) error {
-	userID, err := strconv.ParseUint(c.Query("user_id"), 10, 64)
-	if err != nil || userID == 0 {
-		return fiber.NewError(fiber.StatusBadRequest, "user_id is required")
+	userID, err := middleware.SelfID(c, c.Query("user_id"))
+	if err != nil {
+		return err
 	}
-	items, err := h.store.Documents(c.Context(), userID)
+	limit := 20
+	if l := c.QueryInt("limit", 20); l > 0 && l <= 100 {
+		limit = l
+	}
+	offset := c.QueryInt("offset", 0)
+	if offset < 0 {
+		offset = 0
+	}
+	items, err := h.store.Documents(c.Context(), userID, limit, offset)
 	if err != nil {
 		return fiber.ErrInternalServerError
 	}
@@ -95,12 +125,9 @@ func (h *Handler) Get(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.ErrBadRequest
 	}
-	item, err := h.store.Document(c.Context(), id)
-	if err == database.ErrDocumentNotFound {
-		return fiber.ErrNotFound
-	}
+	item, err := h.ownedDocument(c, id)
 	if err != nil {
-		return fiber.ErrInternalServerError
+		return err
 	}
 	return c.JSON(item)
 }
@@ -127,6 +154,9 @@ func (h *Handler) Update(c *fiber.Ctx) error {
 	if !json.Valid([]byte(metadata)) {
 		return fiber.NewError(fiber.StatusBadRequest, "metadata must be valid JSON")
 	}
+	if _, err := h.ownedDocument(c, id); err != nil {
+		return err
+	}
 	item, err := h.store.UpdateDocument(c.Context(), database.Document{ID: id, Category: value.Category, Summary: value.Summary, Metadata: metadata})
 	if err == database.ErrDocumentNotFound {
 		return fiber.ErrNotFound
@@ -142,17 +172,15 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.ErrBadRequest
 	}
-	item, err := h.store.Document(c.Context(), id)
-	if err == database.ErrDocumentNotFound {
-		return fiber.ErrNotFound
-	}
+	item, err := h.ownedDocument(c, id)
 	if err != nil {
+		return err
+	}
+	// Delete from R2 first (idempotent), then soft-delete from DB
+	if err := h.r2.Delete(c.Context(), item.R2Key); err != nil {
 		return fiber.ErrInternalServerError
 	}
 	if err := h.store.SoftDeleteDocument(c.Context(), id); err != nil {
-		return fiber.ErrInternalServerError
-	}
-	if err := h.r2.Delete(c.Context(), item.R2Key); err != nil {
 		return fiber.ErrInternalServerError
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -163,20 +191,18 @@ func (h *Handler) Download(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.ErrBadRequest
 	}
-	item, err := h.store.Document(c.Context(), id)
-	if err == database.ErrDocumentNotFound {
-		return fiber.ErrNotFound
-	}
+	item, err := h.ownedDocument(c, id)
 	if err != nil {
-		return fiber.ErrInternalServerError
+		return err
 	}
 	object, err := h.r2.Get(c.Context(), item.R2Key)
 	if err != nil {
 		return fiber.ErrNotFound
 	}
 	defer object.Close()
-	c.Set(fiber.HeaderContentType, item.MimeType)
+	c.Set(fiber.HeaderContentType, r2storage.SafeContentType(item.MimeType))
 	c.Set(fiber.HeaderContentDisposition, fmt.Sprintf(`attachment; filename="%s"`, strings.ReplaceAll(item.FileName, `"`, "")))
+	c.Set(fiber.HeaderXContentTypeOptions, "nosniff")
 	return c.SendStream(object)
 }
 
@@ -184,6 +210,9 @@ func (h *Handler) Versions(c *fiber.Ctx) error {
 	id, err := parseID(c)
 	if err != nil {
 		return fiber.ErrBadRequest
+	}
+	if _, err := h.ownedDocument(c, id); err != nil {
+		return err
 	}
 	items, err := h.store.DocumentVersions(c.Context(), id)
 	if err != nil {
@@ -204,6 +233,9 @@ func (h *Handler) CreateTag(c *fiber.Ctx) error {
 	if err := c.BodyParser(&value); err != nil || value.Tag == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "tag is required")
 	}
+	if _, err := h.ownedDocument(c, id); err != nil {
+		return err
+	}
 	item, err := h.store.CreateDocumentTag(c.Context(), database.DocumentTag{DocumentID: id, Tag: value.Tag, ConfidenceScore: value.ConfidenceScore})
 	if err != nil {
 		return fiber.ErrConflict
@@ -215,6 +247,9 @@ func (h *Handler) ListTags(c *fiber.Ctx) error {
 	id, err := parseID(c)
 	if err != nil {
 		return fiber.ErrBadRequest
+	}
+	if _, err := h.ownedDocument(c, id); err != nil {
+		return err
 	}
 	items, err := h.store.DocumentTags(c.Context(), id)
 	if err != nil {
@@ -232,12 +267,29 @@ func (h *Handler) DeleteTag(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.ErrBadRequest
 	}
+	if _, err := h.ownedDocument(c, id); err != nil {
+		return err
+	}
 	if err := h.store.DeleteDocumentTag(c.Context(), id, tagID); err == database.ErrDocumentTagNotFound {
 		return fiber.ErrNotFound
 	} else if err != nil {
 		return fiber.ErrInternalServerError
 	}
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (h *Handler) ownedDocument(c *fiber.Ctx, id uint64) (database.Document, error) {
+	item, err := h.store.Document(c.Context(), id)
+	if errors.Is(err, database.ErrDocumentNotFound) {
+		return database.Document{}, fiber.ErrNotFound
+	}
+	if err != nil {
+		return database.Document{}, fiber.ErrInternalServerError
+	}
+	if item.UserID != middleware.UserID(c) {
+		return database.Document{}, fiber.ErrNotFound
+	}
+	return item, nil
 }
 
 func parseID(c *fiber.Ctx) (uint64, error) { return strconv.ParseUint(c.Params("id"), 10, 64) }

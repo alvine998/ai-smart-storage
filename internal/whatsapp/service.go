@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 type Service struct {
@@ -17,7 +18,10 @@ type Service struct {
 }
 
 func New(token, appSecret, phoneID, graphVersion string) *Service {
-	return &Service{token: token, appSecret: appSecret, phoneID: phoneID, graphVersion: graphVersion, client: http.DefaultClient}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	return &Service{token: token, appSecret: appSecret, phoneID: phoneID, graphVersion: graphVersion, client: client}
 }
 
 func (s *Service) Verify(mode, challenge, verifyToken string) (string, error) {

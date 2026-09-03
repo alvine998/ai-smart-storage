@@ -60,6 +60,9 @@ func (c *Client) StreamWithUsage(ctx context.Context, messages []Message, emit f
 	}
 	var usage Usage
 	scanner := bufio.NewScanner(resp.Body)
+	// Set a larger buffer for streaming responses that may exceed the default 64KB
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024) // 1MB max
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(line, "data:") {

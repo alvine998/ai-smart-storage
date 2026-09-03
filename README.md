@@ -18,7 +18,17 @@ For an existing database, apply `migrations/002_businesses.sql`, `migrations/004
 
 The API listens on `http://localhost:8080`.
 
-CORS is currently open to all origins, methods, and headers for frontend development. Restrict the middleware configuration before production deployment.
+CORS origins are controlled by `CORS_ALLOWED_ORIGINS` (default `*` for development; set a comma-separated list before production).
+
+## Authentication
+
+All `/v1` routes require a bearer token except user registration and login.
+
+1. `POST /v1/users` to register.
+2. `POST /v1/auth/login` with `email` and `password` to receive a token.
+3. Send `Authorization: Bearer <token>` on every request.
+
+Set `APP_JWT_SECRET` to a long random string to keep tokens valid across restarts; when it is empty the server generates an ephemeral secret and logs a warning. `JWT_TTL_HOURS` (default 24) controls token expiry. User-scoped resources enforce ownership server-side: the `user_id` in queries and bodies must match the authenticated user, `GET /v1/users` listing is admin-restricted, and subscription/invoice listing is admin-restricted. Login, chat streaming, and the WhatsApp webhook are rate limited. `/v1/storage` keys are scoped per user under `uploads/<user_id>/...`, and downloads force `Content-Disposition: attachment` with `X-Content-Type-Options: nosniff`.
 
 ## Testing
 

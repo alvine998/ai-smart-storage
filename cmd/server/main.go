@@ -1,13 +1,20 @@
 package main
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"ai-smart-storage/internal/ai"
 	"ai-smart-storage/internal/config"
 	"ai-smart-storage/internal/database"
 	"ai-smart-storage/internal/http/ai_logs"
+	authhttp "ai-smart-storage/internal/http/auth"
 	"ai-smart-storage/internal/http/business"
 	"ai-smart-storage/internal/http/chat"
 	"ai-smart-storage/internal/http/documents"
@@ -25,6 +32,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -47,20 +55,61 @@ func main() {
 	}
 	aiClient := ai.NewClient(cfg.MimoAPIKey, cfg.MimoBaseURL, cfg.MimoModel, time.Duration(cfg.MimoTimeoutSec)*time.Second)
 	wa := whatsapp.New(cfg.WhatsAppToken, cfg.WhatsAppAppSecret, cfg.WhatsAppPhoneID, cfg.WhatsAppGraphVer)
-	app := fiber.New(fiber.Config{AppName: "AI Smart Storage"})
-	app.Use(middleware.OpenCORS())
-	health.New().Register(app)
-	users.New(store).Register(app)
-	usagequota.New(store).Register(app)
-	ai_logs.New(store).Register(app)
-	business.New(store).Register(app)
-	documents.New(store, r2).Register(app)
-	plans.New(store).Register(app)
-	subscriptions.New(store).Register(app)
-	invoices.New(store).Register(app)
-	storage.New(r2).Register(app)
-	chat.New(aiClient, store, cfg.MimoInputCost, cfg.MimoOutputCost).Register(app)
-	whatsapphttp.New(aiClient, store, wa, cfg.SignupURL).Register(app)
+	redisOptions, err := redis.ParseURL(cfg.RedisURL)
+	if err != nil {
+		log.Fatalf("redis configuration: %v", err)
+	}
+	redisClient := redis.NewClient(redisOptions)
+	defer redisClient.Close()
+	secret := cfg.JWTSecret
+	if secret == "" {
+		secret = randomSecret()
+		log.Printf("warning: APP_JWT_SECRET is not set; using an ephemeral secret, issued tokens stop working after restart")
+	}
+	app := fiber.New(fiber.Config{
+		AppName:   "AI Smart Storage",
+		BodyLimit: 500 * 1024 * 1024, // 500MB
+	})
+	app.Use(middleware.CORS(cfg.CORSAllowedOrigins))
+	health.New(store, r2).Register(app)
+	authhttp.New(store, secret, time.Duration(cfg.JWTTTLHours)*time.Hour).Register(app)
+	users.New(store).RegisterPublic(app)
+	whatsappHandler := whatsapphttp.New(aiClient, store, wa, cfg.SignupURL, redisClient)
+	whatsappHandler.Register(app)
+	api := app.Group("/", middleware.RequireAuth(secret))
+	users.New(store).Register(api)
+	usagequota.New(store).Register(api)
+	ai_logs.New(store).Register(api)
+	business.New(store).Register(api)
+	documents.New(store, r2).Register(api)
+	plans.New(store).Register(api)
+	subscriptions.New(store).Register(api)
+	invoices.New(store).Register(api)
+	storage.NewWithDB(r2, store).Register(api)
+	chat.New(aiClient, store, cfg.MimoInputCost, cfg.MimoOutputCost).Register(api)
+	whatsappHandler.RegisterProtected(api)
 	log.Printf("API listening on :%s", cfg.Port)
+
+	// Set up graceful shutdown
+	go func() {
+		sigch := make(chan os.Signal, 1)
+		signal.Notify(sigch, syscall.SIGTERM, syscall.SIGINT)
+		<-sigch
+		log.Println("shutting down gracefully...")
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := app.ShutdownWithContext(ctx); err != nil {
+			log.Printf("shutdown error: %v", err)
+		}
+	}()
+
 	log.Fatal(app.Listen(":" + cfg.Port))
+}
+
+func randomSecret() string {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		log.Fatalf("generate jwt secret: %v", err)
+	}
+	return hex.EncodeToString(buf)
 }

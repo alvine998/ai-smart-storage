@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+
+	"ai-smart-storage/internal/phone"
 )
 
 var ErrBusinessNotFound = errors.New("business not found")
@@ -23,6 +25,7 @@ type Business struct {
 }
 
 func (s *Store) CreateBusiness(ctx context.Context, business Business) (Business, error) {
+	business.PhoneNumber = phone.Normalize(business.PhoneNumber)
 	result, err := s.db.ExecContext(ctx, `INSERT INTO businesses (user_id, legal_name, display_name, tax_id, phone_number, email, website, address) VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''))`, business.UserID, business.LegalName, business.DisplayName, business.TaxID, business.PhoneNumber, business.Email, business.Website, business.Address)
 	if err != nil {
 		return Business{}, err
@@ -53,6 +56,7 @@ func (s *Store) UserBusiness(ctx context.Context, userID uint64) (Business, erro
 }
 
 func (s *Store) UpdateBusiness(ctx context.Context, business Business) (Business, error) {
+	business.PhoneNumber = phone.Normalize(business.PhoneNumber)
 	result, err := s.db.ExecContext(ctx, `UPDATE businesses SET legal_name = ?, display_name = NULLIF(?, ''), tax_id = NULLIF(?, ''), phone_number = NULLIF(?, ''), email = NULLIF(?, ''), website = NULLIF(?, ''), address = NULLIF(?, '') WHERE user_id = ? AND id = ?`, business.LegalName, business.DisplayName, business.TaxID, business.PhoneNumber, business.Email, business.Website, business.Address, business.UserID, business.ID)
 	if err != nil {
 		return Business{}, err

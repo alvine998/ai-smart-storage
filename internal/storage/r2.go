@@ -49,6 +49,14 @@ func New(config Config) (*Store, error) {
 	return &Store{client: client, bucket: config.Bucket, publicURL: strings.TrimRight(config.PublicURL, "/")}, nil
 }
 
+func (s *Store) Ping(ctx context.Context) error {
+	if s == nil || s.client == nil {
+		return fmt.Errorf("store not initialized")
+	}
+	_, err := s.client.BucketExists(ctx, s.bucket)
+	return err
+}
+
 func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64, contentType string) error {
 	if contentType == "" {
 		contentType = "application/octet-stream"
@@ -79,6 +87,19 @@ func (s *Store) PublicURL(key string) string {
 		return ""
 	}
 	return s.publicURL + "/" + strings.TrimLeft(key, "/")
+}
+
+func SafeContentType(contentType string) string {
+	if contentType == "" {
+		return "application/octet-stream"
+	}
+	lower := strings.ToLower(contentType)
+	for _, risky := range []string{"html", "svg", "xml", "javascript"} {
+		if strings.Contains(lower, risky) {
+			return "application/octet-stream"
+		}
+	}
+	return contentType
 }
 
 func (s *Store) PresignedURL(ctx context.Context, key string, expiry time.Duration) (*url.URL, error) {

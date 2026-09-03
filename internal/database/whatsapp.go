@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	phoneutil "ai-smart-storage/internal/phone"
 )
 
 var ErrUserPhoneNotFound = errors.New("user phone not found")
@@ -29,8 +31,10 @@ type WAConversationWindow struct {
 }
 
 func (s *Store) UserByPhone(ctx context.Context, phone string) (uint64, error) {
+	phone = phoneutil.Normalize(phone)
+	phonePlus := "+" + phone
 	var id uint64
-	err := s.db.QueryRowContext(ctx, `SELECT id FROM users WHERE phone_number = ?`, phone).Scan(&id)
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM users WHERE phone_number = ? OR phone_number = ?`, phone, phonePlus).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, ErrUserPhoneNotFound
 	}
@@ -43,7 +47,8 @@ func (s *Store) LogWAConversation(ctx context.Context, conversation WAConversati
 }
 
 func (s *Store) OpenWAWindow(ctx context.Context, userID uint64, openedAt time.Time) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO wa_conversation_windows (user_id, window_opened_at, window_expires_at) VALUES (?, ?, ?)`, userID, openedAt, openedAt.Add(24*time.Hour))
+	expiresAt := openedAt.Add(24 * time.Hour)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO wa_conversation_windows (user_id, window_opened_at, window_expires_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE window_opened_at = VALUES(window_opened_at), window_expires_at = VALUES(window_expires_at)`, userID, openedAt, expiresAt)
 	return err
 }
 
@@ -53,8 +58,17 @@ func (s *Store) WAWindowOpen(ctx context.Context, userID uint64, now time.Time) 
 	return exists, err
 }
 
-func (s *Store) WAConversations(ctx context.Context, userID uint64) ([]WAConversation, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, user_id, wa_message_id, direction, message_type, category, content, cost, created_at FROM wa_conversations WHERE user_id = ? ORDER BY id DESC`, userID)
+func (s *Store) WAConversations(ctx context.Context, userID uint64, limit int, offset int) ([]WAConversation, error) {
+	if limit <= 0 {
+		limit = 20 // default page size
+	}
+	if limit > 100 {
+		limit = 100 // max page size
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, user_id, wa_message_id, direction, message_type, category, content, cost, created_at FROM wa_conversations WHERE user_id = ? ORDER BY id DESC LIMIT ? OFFSET ?`, userID, limit, offset)
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,7 @@
+# Taste
+- For project audits, wants comprehensive multi-dimension coverage — explicitly asked for "performance, security, bugs, etc" (open-ended scope), and findings organized by severity with a prioritized fix order, not a single-focus review. Confidence: 0.6
+- Expects audits to be evidence-based, not static reading alone: run `go build`/`go vet`/`go test`, check git history for committed secrets, and cite concrete file:line references in findings. Confidence: 0.5
+- Follows up on audits by acting on the top-priority items immediately, and explicitly excludes specific findings with a reason when they'll handle them themselves/operationally (e.g., deferred the WhatsApp webhook-forgery fix because the secret will be configured after dev) — honor stated exclusions instead of implementing them anyway. Confidence: 0.6
+- Gives terse, informal, low-detail briefs (lowercase, catch-all "etc") and delegates scoping/detail decisions to the agent; expects autonomous execution without follow-up questions mid-task. Confidence: 0.5
+- project's API client (left open in the IDE); update it in sync with endpoint/auth changes so their testing setup keeps working. Confidence: 0.5
+- Messaging-channel users (WhatsApp bot) must never require password login — expects phone-number-based identity with webhook signature auth only; password auth is reserved for the HTTP dashboard API. When touching auth middleware/routes, keep the public WhatsApp path credential-free. Confidence: 0.7

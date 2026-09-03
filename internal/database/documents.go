@@ -40,22 +40,43 @@ type DocumentVersion struct {
 }
 
 func (s *Store) CreateDocument(ctx context.Context, document Document) (Document, error) {
-	result, err := s.db.ExecContext(ctx, `INSERT INTO documents (user_id, file_name, r2_key, file_size, mime_type, category, summary, metadata, uploaded_via) VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?)`, document.UserID, document.FileName, document.R2Key, document.FileSize, document.MimeType, document.Category, document.Summary, document.Metadata, document.UploadedVia)
+	var result Document
+	err := s.WithTx(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		// Insert document
+		res, err := tx.ExecContext(ctx, `INSERT INTO documents (user_id, file_name, r2_key, file_size, mime_type, category, summary, metadata, uploaded_via) VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?)`, document.UserID, document.FileName, document.R2Key, document.FileSize, document.MimeType, document.Category, document.Summary, document.Metadata, document.UploadedVia)
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		// Insert document version
+		if _, err = tx.ExecContext(ctx, `INSERT INTO document_versions (document_id, version_number, r2_key) VALUES (?, 1, ?)`, id, document.R2Key); err != nil {
+			return err
+		}
+		// Fetch created document
+		row := tx.QueryRowContext(ctx, `SELECT id, user_id, file_name, r2_key, file_size, mime_type, category, summary, metadata, uploaded_via, created_at, deleted_at FROM documents WHERE id = ? AND deleted_at IS NULL`, id)
+		result, err = scanDocument(row)
+		return err
+	})
 	if err != nil {
 		return Document{}, err
 	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return Document{}, err
-	}
-	if _, err = s.db.ExecContext(ctx, `INSERT INTO document_versions (document_id, version_number, r2_key) VALUES (?, 1, ?)`, id, document.R2Key); err != nil {
-		return Document{}, err
-	}
-	return s.Document(ctx, uint64(id))
+	return result, nil
 }
 
-func (s *Store) Documents(ctx context.Context, userID uint64) ([]Document, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, user_id, file_name, r2_key, file_size, mime_type, category, summary, metadata, uploaded_via, created_at, deleted_at FROM documents WHERE user_id = ? AND deleted_at IS NULL ORDER BY id DESC`, userID)
+func (s *Store) Documents(ctx context.Context, userID uint64, limit int, offset int) ([]Document, error) {
+	if limit <= 0 {
+		limit = 20 // default page size
+	}
+	if limit > 100 {
+		limit = 100 // max page size
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, user_id, file_name, r2_key, file_size, mime_type, category, summary, metadata, uploaded_via, created_at, deleted_at FROM documents WHERE user_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT ? OFFSET ?`, userID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
