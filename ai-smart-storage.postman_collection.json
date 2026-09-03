@@ -16,7 +16,7 @@
     { "key": "subscriptionId", "value": "1" },
     { "key": "invoiceId", "value": "1" },
     { "key": "storageKey", "value": "example.txt" },
-    { "key": "whatsappAppSecret", "value": "change-me" },
+    { "key": "whatsappAppSecret", "value": "smartstorage2026" },
     { "key": "whatsappVerifyToken", "value": "change-me" },
     { "key": "whatsappChallenge", "value": "challenge-value" },
     { "key": "whatsappSignature", "value": "sha256=replace-with-hmac" }

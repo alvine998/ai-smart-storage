@@ -77,30 +77,45 @@ func (h *Handler) Verify(c *fiber.Ctx) error {
 
 func (h *Handler) Receive(c *fiber.Ctx) error {
 	if h.wa == nil {
+		log.Printf("whatsapp: WA service not configured")
 		return fiber.ErrInternalServerError
 	}
 	body := c.Body()
 	if !h.wa.ValidSignature(body, c.Get("X-Hub-Signature-256")) {
+		log.Printf("whatsapp: invalid signature")
 		return fiber.ErrUnauthorized
 	}
 	var incoming service.Incoming
 	if err := json.Unmarshal(body, &incoming); err != nil {
+		log.Printf("whatsapp: unmarshal error: %v", err)
 		return fiber.ErrBadRequest
 	}
+	textMessages := 0
 	for _, entry := range incoming.Entry {
 		for _, change := range entry.Changes {
 			for _, message := range change.Value.Messages {
+				textMessages++
+				log.Printf("whatsapp: message type=%s from=%s id=%s", message.Type, message.From, message.ID)
 				if message.Type == "text" {
 					go h.reply(message.ID, message.From, message.Text.Body)
 				}
 			}
 		}
 	}
+	if textMessages == 0 {
+		log.Printf("whatsapp: received webhook with %d entries but no messages (likely status update)", len(incoming.Entry))
+	}
 	return c.SendStatus(fiber.StatusOK)
 }
 
 func (h *Handler) reply(id, phone, text string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("whatsapp reply panic: %v", r)
+		}
+	}()
 	phone = phoneutil.Normalize(phone)
+	log.Printf("whatsapp reply: from=%s text=%q", phone, text)
 	if h.store == nil {
 		log.Printf("whatsapp reply: store not configured")
 		return

@@ -8,24 +8,60 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
 
 type Service struct {
-	token, appSecret, phoneID, graphVersion string
-	client                                  *http.Client
+	token, verifyToken, appSecret, phoneID, graphVersion string
+	client                                                *http.Client
 }
 
-func New(token, appSecret, phoneID, graphVersion string) *Service {
+func New(token, verifyToken, appSecret, phoneID, graphVersion string) *Service {
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
-	return &Service{token: token, appSecret: appSecret, phoneID: phoneID, graphVersion: graphVersion, client: client}
+	return &Service{token: token, verifyToken: verifyToken, appSecret: appSecret, phoneID: phoneID, graphVersion: graphVersion, client: client}
+}
+
+// Ping verifies connectivity to the WhatsApp Cloud API by fetching the
+// phone number metadata. Suitable for startup diagnostics / health probes.
+func (s *Service) Ping(ctx context.Context) error {
+	if s == nil {
+		return fmt.Errorf("whatsapp service not initialized")
+	}
+	if s.token == "" {
+		return fmt.Errorf("WHATSAPP_ACCESS_TOKEN not set")
+	}
+	if s.phoneID == "" {
+		return fmt.Errorf("WHATSAPP_PHONE_NUMBER_ID not set")
+	}
+	url := fmt.Sprintf("https://graph.facebook.com/%s/%s?fields=id,display_phone_number", s.graphVersion, s.phoneID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.token)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("whatsapp API returned %s: %s", resp.Status, string(body))
+	}
+	return nil
+}
+
+// IsConfigured returns true when mandatory credentials are present.
+func (s *Service) IsConfigured() bool {
+	return s != nil && s.token != "" && s.phoneID != ""
 }
 
 func (s *Service) Verify(mode, challenge, verifyToken string) (string, error) {
-	if mode != "subscribe" || verifyToken != s.token {
+	if mode != "subscribe" || verifyToken != s.verifyToken {
 		return "", fmt.Errorf("webhook verification failed")
 	}
 	return challenge, nil
@@ -60,7 +96,8 @@ func (s *Service) SendText(ctx context.Context, recipient, text string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("whatsapp API returned %s", resp.Status)
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("whatsapp API returned %s: %s", resp.Status, string(body))
 	}
 	return nil
 }

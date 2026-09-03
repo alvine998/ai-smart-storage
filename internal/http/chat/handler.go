@@ -86,6 +86,13 @@ func (h *Handler) Stream(c *fiber.Ctx) error {
 			return
 		}
 		cost := float64(usage.InputTokens)/1000*h.inputCost + float64(usage.OutputTokens)/1000*h.outputCost
+		// Token Plan is quota/credits-based — dollar costs are meaningless.
+		// Force cost to 0 when client is on Token Plan (even if env costs are
+		// mistakenly set), mirroring the docs recommendation to leave
+		// MIMO_INPUT/OUTPUT_COST_PER_1K=0 for token-plan.
+		if h.client != nil && h.client.IsTokenPlan() {
+			cost = 0
+		}
 		if h.store != nil {
 			if err := h.store.CreateAIProcessingLog(context.Background(), database.AIProcessingLog{UserID: userID, ActionType: "search_query", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, EstimatedCost: fmt.Sprintf("%.8f", cost)}); err != nil {
 				fmt.Fprintf(w, "event: log_error\ndata: %s\n\n", jsonString(err.Error()))

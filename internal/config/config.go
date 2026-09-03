@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -57,6 +58,16 @@ func Load() Config {
 		SignupURL:          value("SIGNUP_URL", "http://localhost:8080/signup"),
 		RedisURL:           value("REDIS_URL", "redis://localhost:6379/0"),
 	}
+}
+
+// IsTokenPlan returns true when MIMO is configured for the subscription
+// Token Plan (baseURL contains "token-plan" or key prefix tp-/rtp-).
+func (c Config) IsTokenPlan() bool {
+	if strings.Contains(strings.ToLower(c.MimoBaseURL), "token-plan") {
+		return true
+	}
+	key := strings.TrimSpace(c.MimoAPIKey)
+	return strings.HasPrefix(key, "tp-") || strings.HasPrefix(key, "rtp-")
 }
 
 func decimal(key string, fallback float64) float64 {

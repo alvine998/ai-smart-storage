@@ -8,7 +8,7 @@ import (
 )
 
 func TestVerify(t *testing.T) {
-	service := New("verify-me", "secret", "phone-id", "v22.0")
+	service := New("token", "verify-me", "secret", "phone-id", "v22.0")
 	challenge, err := service.Verify("subscribe", "challenge-value", "verify-me")
 	if err != nil || challenge != "challenge-value" {
 		t.Fatalf("challenge = %q, error = %v", challenge, err)
@@ -24,7 +24,7 @@ func TestValidSignature(t *testing.T) {
 	_, _ = mac.Write(body)
 	signature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 
-	service := New("token", "secret", "phone-id", "v22.0")
+	service := New("token", "verify-token", "secret", "phone-id", "v22.0")
 	if !service.ValidSignature(body, signature) {
 		t.Fatal("expected valid signature")
 	}
