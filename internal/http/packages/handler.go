@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"ai-smart-storage/internal/database"
+
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -20,9 +21,11 @@ func (h *Handler) Register(app fiber.Router) {
 }
 
 type input struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Price       string `json:"price"`
+	Name              string `json:"name"`
+	Description       string `json:"description"`
+	Price             string `json:"price"`
+	StorageLimitBytes uint64 `json:"storage_limit_bytes"`
+	AITokenLimit      uint64 `json:"ai_token_limit"`
 }
 
 func (h *Handler) Create(c *fiber.Ctx) error {
@@ -30,7 +33,7 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&value); err != nil || value.Name == "" || value.Price == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "name and price are required")
 	}
-	item, err := h.store.CreatePackage(c.Context(), database.Package{Name: value.Name, Description: value.Description, Price: value.Price})
+	item, err := h.store.CreatePackage(c.Context(), database.Package{Name: value.Name, Description: value.Description, Price: value.Price, StorageLimitBytes: value.StorageLimitBytes, AITokenLimit: value.AITokenLimit})
 	if err != nil {
 		return fiber.ErrConflict
 	}
@@ -69,7 +72,7 @@ func (h *Handler) Update(c *fiber.Ctx) error {
 	if err := c.BodyParser(&value); err != nil || value.Name == "" || value.Price == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "name and price are required")
 	}
-	item, err := h.store.UpdatePackage(c.Context(), database.Package{ID: id, Name: value.Name, Description: value.Description, Price: value.Price})
+	item, err := h.store.UpdatePackage(c.Context(), database.Package{ID: id, Name: value.Name, Description: value.Description, Price: value.Price, StorageLimitBytes: value.StorageLimitBytes, AITokenLimit: value.AITokenLimit})
 	if err == database.ErrPackageNotFound {
 		return fiber.ErrNotFound
 	}

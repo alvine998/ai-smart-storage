@@ -14,6 +14,8 @@ go mod tidy
 go run ./cmd/server
 ```
 
+For an existing database, apply `migrations/001_package_quotas.sql` instead of recreating the schema.
+
 The API listens on `http://localhost:8080`.
 
 CORS is currently open to all origins, methods, and headers for frontend development. Restrict the middleware configuration before production deployment.
@@ -60,6 +62,21 @@ Feature handlers live in separate packages under `internal/http`:
 - `GET /v1/users/:id/packages` to list a user's packages
 - `PUT /v1/users/:id/packages/:assignmentID` to update an assignment
 - `DELETE /v1/users/:id/packages/:assignmentID` to remove an assignment
+- Package fields `storage_limit_bytes` and `ai_token_limit` define monthly quotas. A value of `0` means unlimited; active, non-expired packages are combined.
+- Storage uploads and AI chat require the `X-User-ID` header. Uploads consume the file size; chat reserves an estimate of input tokens plus 2,048 output tokens.
+
+`X-User-ID` is a temporary identity mechanism for this template. Protect these endpoints with authentication and derive the user ID from the authenticated principal before production use.
+
+Example package payload:
+
+```json
+{
+	"name": "Pro",
+	"price": "29.00",
+	"storage_limit_bytes": 10737418240,
+	"ai_token_limit": 100000
+}
+```
 - `POST /v1/storage/upload` as multipart form data with a `file` field and optional `key` field
 - `GET /v1/storage/{key}` to download an object from R2
 - `POST /v1/chat/stream` with `{"messages":[{"role":"user","content":"Hello"}]}`

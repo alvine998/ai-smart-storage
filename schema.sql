@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS packages (
     name VARCHAR(120) NOT NULL UNIQUE,
     description TEXT NULL,
     price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    storage_limit_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    ai_token_limit BIGINT UNSIGNED NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -40,4 +42,13 @@ CREATE TABLE IF NOT EXISTS user_packages (
     CONSTRAINT fk_user_packages_package FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE,
     INDEX idx_user_packages_user (user_id),
     INDEX idx_user_packages_package (package_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_usage (
+    user_id BIGINT UNSIGNED NOT NULL,
+    usage_month DATE NOT NULL,
+    storage_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    ai_tokens BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, usage_month),
+    CONSTRAINT fk_user_usage_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

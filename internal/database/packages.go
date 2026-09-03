@@ -10,16 +10,18 @@ var ErrPackageNotFound = errors.New("package not found")
 var ErrUserPackageNotFound = errors.New("user package not found")
 
 type Package struct {
-	ID          uint64 `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Price       string `json:"price"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID                uint64 `json:"id"`
+	Name              string `json:"name"`
+	Description       string `json:"description,omitempty"`
+	Price             string `json:"price"`
+	StorageLimitBytes uint64 `json:"storage_limit_bytes"`
+	AITokenLimit      uint64 `json:"ai_token_limit"`
+	CreatedAt         string `json:"created_at"`
+	UpdatedAt         string `json:"updated_at"`
 }
 
 func (s *Store) CreatePackage(ctx context.Context, item Package) (Package, error) {
-	result, err := s.db.ExecContext(ctx, `INSERT INTO packages (name, description, price) VALUES (?, NULLIF(?, ''), ?)`, item.Name, item.Description, item.Price)
+	result, err := s.db.ExecContext(ctx, `INSERT INTO packages (name, description, price, storage_limit_bytes, ai_token_limit) VALUES (?, NULLIF(?, ''), ?, ?, ?)`, item.Name, item.Description, item.Price, item.StorageLimitBytes, item.AITokenLimit)
 	if err != nil {
 		return Package{}, err
 	}
@@ -31,7 +33,7 @@ func (s *Store) CreatePackage(ctx context.Context, item Package) (Package, error
 }
 
 func (s *Store) Packages(ctx context.Context) ([]Package, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, description, price, created_at, updated_at FROM packages ORDER BY id DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, description, price, storage_limit_bytes, ai_token_limit, created_at, updated_at FROM packages ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +50,7 @@ func (s *Store) Packages(ctx context.Context) ([]Package, error) {
 }
 
 func (s *Store) Package(ctx context.Context, id uint64) (Package, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, price, created_at, updated_at FROM packages WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, price, storage_limit_bytes, ai_token_limit, created_at, updated_at FROM packages WHERE id = ?`, id)
 	item, err := scanPackage(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Package{}, ErrPackageNotFound
@@ -57,7 +59,7 @@ func (s *Store) Package(ctx context.Context, id uint64) (Package, error) {
 }
 
 func (s *Store) UpdatePackage(ctx context.Context, item Package) (Package, error) {
-	result, err := s.db.ExecContext(ctx, `UPDATE packages SET name = ?, description = NULLIF(?, ''), price = ? WHERE id = ?`, item.Name, item.Description, item.Price, item.ID)
+	result, err := s.db.ExecContext(ctx, `UPDATE packages SET name = ?, description = NULLIF(?, ''), price = ?, storage_limit_bytes = ?, ai_token_limit = ? WHERE id = ?`, item.Name, item.Description, item.Price, item.StorageLimitBytes, item.AITokenLimit, item.ID)
 	if err != nil {
 		return Package{}, err
 	}
@@ -151,7 +153,7 @@ func (s *Store) DeleteUserPackage(ctx context.Context, userID, id uint64) error 
 func scanPackage(row rowScanner) (Package, error) {
 	var item Package
 	var description sql.NullString
-	err := row.Scan(&item.ID, &item.Name, &description, &item.Price, &item.CreatedAt, &item.UpdatedAt)
+	err := row.Scan(&item.ID, &item.Name, &description, &item.Price, &item.StorageLimitBytes, &item.AITokenLimit, &item.CreatedAt, &item.UpdatedAt)
 	if description.Valid {
 		item.Description = description.String
 	}
