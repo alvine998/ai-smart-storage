@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(cat .gitignore 2>/dev/null; echo \"=== go.mod ===\"; cat go.mod; echo \"=== .env tracked? ===\"; git ls-files | grep -E \"\\.env|postman\" ; echo \"=== .env in history? ===\"; git log --all --oneline -- .env | head -5; echo \"=== migrations ===\"; ls migrations/)",
+      "Shell(grep:*)",
+      "Shell(go:*)"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}

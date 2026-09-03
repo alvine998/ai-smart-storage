@@ -1,0 +1,102 @@
+{
+  "info": {
+    "_postman_id": "c2d6f1a8-8d62-4e73-a5a7-4d6d3c8d0f11",
+    "name": "AI Smart Storage API",
+    "description": "Requests for the AI Smart Storage Go API. Set collection variables before running requests.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "userId", "value": "1" },
+    { "key": "documentId", "value": "1" },
+    { "key": "tagId", "value": "1" },
+    { "key": "planId", "value": "1" },
+    { "key": "subscriptionId", "value": "1" },
+    { "key": "invoiceId", "value": "1" },
+    { "key": "storageKey", "value": "example.txt" },
+    { "key": "whatsappAppSecret", "value": "change-me" },
+    { "key": "whatsappVerifyToken", "value": "change-me" },
+    { "key": "whatsappChallenge", "value": "challenge-value" },
+    { "key": "whatsappSignature", "value": "sha256=replace-with-hmac" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        { "name": "Health check", "request": { "method": "GET", "url": "{{baseUrl}}/health" } }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        { "name": "Create user", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Ada Lovelace\",\n  \"email\": \"ada@example.com\",\n  \"password\": \"password123\",\n  \"phone_number\": \"15551234567\"}" }, "url": "{{baseUrl}}/v1/users" } },
+        { "name": "List users", "request": { "method": "GET", "url": "{{baseUrl}}/v1/users" } },
+        { "name": "Get user", "request": { "method": "GET", "url": "{{baseUrl}}/v1/users/{{userId}}" } },
+        { "name": "Update user", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Ada Lovelace\",\n  \"email\": \"ada@example.com\",\n  \"password\": \"newpassword123\",\n  \"phone_number\": \"15551234567\"}" }, "url": "{{baseUrl}}/v1/users/{{userId}}" } },
+        { "name": "Delete user", "request": { "method": "DELETE", "url": "{{baseUrl}}/v1/users/{{userId}}" } },
+        { "name": "Create business profile", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"legal_name\": \"Ada Industries Ltd\",\n  \"display_name\": \"Ada Industries\",\n  \"tax_id\": \"TAX-123\",\n  \"phone_number\": \"15551234567\",\n  \"email\": \"contact@example.com\",\n  \"website\": \"https://example.com\",\n  \"address\": \"1 Analytical Engine Way\"\n}" }, "url": "{{baseUrl}}/v1/users/{{userId}}/business" } },
+        { "name": "Get business profile", "request": { "method": "GET", "url": "{{baseUrl}}/v1/users/{{userId}}/business" } },
+        { "name": "Update business profile", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"legal_name\": \"Ada Industries Ltd\",\n  \"display_name\": \"Ada Industries\",\n  \"tax_id\": \"TAX-456\",\n  \"phone_number\": \"15551234567\",\n  \"email\": \"hello@example.com\",\n  \"website\": \"https://example.com\",\n  \"address\": \"2 Calculation Street\"\n}" }, "url": "{{baseUrl}}/v1/users/{{userId}}/business" } },
+        { "name": "Delete business profile", "request": { "method": "DELETE", "url": "{{baseUrl}}/v1/users/{{userId}}/business" } }
+      ]
+    },
+    {
+      "name": "Documents",
+      "item": [
+        { "name": "Upload document", "request": { "method": "POST", "body": { "mode": "formdata", "formdata": [ { "key": "file", "type": "file", "src": "" }, { "key": "user_id", "value": "{{userId}}", "type": "text" }, { "key": "category", "value": "invoice", "type": "text" }, { "key": "summary", "value": "Sample invoice", "type": "text" }, { "key": "metadata", "value": "{\"source\":\"postman\"}", "type": "text" }, { "key": "uploaded_via", "value": "web", "type": "text" } ] }, "url": "{{baseUrl}}/v1/documents" } },
+        { "name": "List documents", "request": { "method": "GET", "url": "{{baseUrl}}/v1/documents?user_id={{userId}}" } },
+        { "name": "Get document", "request": { "method": "GET", "url": "{{baseUrl}}/v1/documents/{{documentId}}" } },
+        { "name": "Update document", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"category\": \"receipt\",\n  \"summary\": \"Updated summary\",\n  \"metadata\": {\"reviewed\": true}\n}" }, "url": "{{baseUrl}}/v1/documents/{{documentId}}" } },
+        { "name": "Download document", "request": { "method": "GET", "url": "{{baseUrl}}/v1/documents/{{documentId}}/download" } },
+        { "name": "List document versions", "request": { "method": "GET", "url": "{{baseUrl}}/v1/documents/{{documentId}}/versions" } },
+        { "name": "Add document tag", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"tag\": \"important\",\n  \"confidence_score\": \"0.98\"\n}" }, "url": "{{baseUrl}}/v1/documents/{{documentId}}/tags" } },
+        { "name": "List document tags", "request": { "method": "GET", "url": "{{baseUrl}}/v1/documents/{{documentId}}/tags" } },
+        { "name": "Delete document tag", "request": { "method": "DELETE", "url": "{{baseUrl}}/v1/documents/{{documentId}}/tags/{{tagId}}" } },
+        { "name": "Delete document", "request": { "method": "DELETE", "url": "{{baseUrl}}/v1/documents/{{documentId}}" } }
+      ]
+    },
+    {
+      "name": "Billing",
+      "item": [
+        { "name": "Create plan", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Starter\",\n  \"price\": \"9.99\",\n  \"storage_quota_gb\": \"10\",\n  \"ai_docs_quota\": 100,\n  \"ai_query_quota\": 500,\n  \"wa_message_quota\": 100,\n  \"is_active\": true\n}" }, "url": "{{baseUrl}}/v1/plans" } },
+        { "name": "List plans", "request": { "method": "GET", "url": "{{baseUrl}}/v1/plans" } },
+        { "name": "Get plan", "request": { "method": "GET", "url": "{{baseUrl}}/v1/plans/{{planId}}" } },
+        { "name": "Update plan", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Starter\",\n  \"price\": \"12.99\",\n  \"storage_quota_gb\": \"20\",\n  \"ai_docs_quota\": 200,\n  \"ai_query_quota\": 1000,\n  \"wa_message_quota\": 200,\n  \"is_active\": true\n}" }, "url": "{{baseUrl}}/v1/plans/{{planId}}" } },
+        { "name": "Delete plan", "request": { "method": "DELETE", "url": "{{baseUrl}}/v1/plans/{{planId}}" } },
+        { "name": "Create subscription", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"user_id\": {{userId}},\n  \"plan_id\": {{planId}},\n  \"status\": \"active\",\n  \"current_period_start\": \"2026-09-01T00:00:00Z\",\n  \"current_period_end\": \"2026-10-01T00:00:00Z\"\n}" }, "url": "{{baseUrl}}/v1/subscriptions" } },
+        { "name": "List subscriptions", "request": { "method": "GET", "url": "{{baseUrl}}/v1/subscriptions" } },
+        { "name": "Get subscription", "request": { "method": "GET", "url": "{{baseUrl}}/v1/subscriptions/{{subscriptionId}}" } },
+        { "name": "Update subscription", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"user_id\": {{userId}},\n  \"plan_id\": {{planId}},\n  \"status\": \"active\",\n  \"current_period_start\": \"2026-09-01T00:00:00Z\",\n  \"current_period_end\": \"2026-10-01T00:00:00Z\"\n}" }, "url": "{{baseUrl}}/v1/subscriptions/{{subscriptionId}}" } },
+        { "name": "Delete subscription", "request": { "method": "DELETE", "url": "{{baseUrl}}/v1/subscriptions/{{subscriptionId}}" } },
+        { "name": "Create invoice", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"user_id\": {{userId}},\n  \"subscription_id\": {{subscriptionId}},\n  \"amount\": \"9.99\",\n  \"status\": \"paid\",\n  \"payment_method\": \"card\",\n  \"paid_at\": \"2026-09-03T12:00:00Z\"\n}" }, "url": "{{baseUrl}}/v1/invoices" } },
+        { "name": "List invoices", "request": { "method": "GET", "url": "{{baseUrl}}/v1/invoices" } },
+        { "name": "Get invoice", "request": { "method": "GET", "url": "{{baseUrl}}/v1/invoices/{{invoiceId}}" } },
+        { "name": "Update invoice", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"user_id\": {{userId}},\n  \"subscription_id\": {{subscriptionId}},\n  \"amount\": \"12.99\",\n  \"status\": \"pending\",\n  \"payment_method\": \"card\",\n  \"paid_at\": \"\"\n}" }, "url": "{{baseUrl}}/v1/invoices/{{invoiceId}}" } },
+        { "name": "Delete invoice", "request": { "method": "DELETE", "url": "{{baseUrl}}/v1/invoices/{{invoiceId}}" } }
+      ]
+    },
+    {
+      "name": "Usage and AI",
+      "item": [
+        { "name": "Get usage quota", "request": { "method": "GET", "url": "{{baseUrl}}/v1/usage-quota?user_id={{userId}}" } },
+        { "name": "List AI processing logs", "request": { "method": "GET", "url": "{{baseUrl}}/v1/ai-processing-logs?user_id={{userId}}" } },
+        { "name": "Stream chat", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "text/event-stream" }], "body": { "mode": "raw", "raw": "{\n  \"user_id\": {{userId}},\n  \"messages\": [\n    {\"role\": \"user\", \"content\": \"Hello, summarize my latest documents.\"}\n  ]\n}" }, "url": "{{baseUrl}}/v1/chat/stream" } },
+        { "name": "List WhatsApp conversations", "request": { "method": "GET", "url": "{{baseUrl}}/v1/wa-conversations?user_id={{userId}}" } }
+      ]
+    },
+    {
+      "name": "Storage",
+      "item": [
+        { "name": "Upload object", "request": { "method": "POST", "body": { "mode": "formdata", "formdata": [ { "key": "file", "type": "file", "src": "" }, { "key": "key", "value": "{{storageKey}}", "type": "text" } ] }, "url": "{{baseUrl}}/v1/storage/upload" } },
+        { "name": "Download object", "request": { "method": "GET", "url": "{{baseUrl}}/v1/storage/{{storageKey}}" } }
+      ]
+    },
+    {
+      "name": "WhatsApp Webhook",
+      "item": [
+        { "name": "Verify webhook", "request": { "method": "GET", "url": "{{baseUrl}}/webhooks/whatsapp?hub.mode=subscribe&hub.challenge={{whatsappChallenge}}&hub.verify_token={{whatsappVerifyToken}}" } },
+        { "name": "Receive text webhook", "event": [{ "listen": "prerequest", "script": { "exec": ["const secret = pm.variables.replaceIn('{{whatsappAppSecret}}');", "const body = pm.variables.replaceIn(pm.request.body.raw);", "const digest = CryptoJS.HmacSHA256(body, secret).toString(CryptoJS.enc.Hex);", "pm.request.headers.upsert({ key: 'X-Hub-Signature-256', value: 'sha256=' + digest });"] } }], "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-Hub-Signature-256", "value": "{{whatsappSignature}}" }], "body": { "mode": "raw", "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"changes\": [\n        {\n          \"value\": {\n            \"messages\": [\n              {\n                \"id\": \"wamid.example\",\n                \"from\": \"15551234567\",\n                \"type\": \"text\",\n                \"text\": {\"body\": \"Hello from Postman\"}\n              }\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}" }, "url": "{{baseUrl}}/webhooks/whatsapp" } }
+      ]
+    }
+  ]
+}

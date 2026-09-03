@@ -7,14 +7,17 @@ import (
 	"ai-smart-storage/internal/ai"
 	"ai-smart-storage/internal/config"
 	"ai-smart-storage/internal/database"
+	"ai-smart-storage/internal/http/ai_logs"
 	"ai-smart-storage/internal/http/business"
 	"ai-smart-storage/internal/http/chat"
+	"ai-smart-storage/internal/http/documents"
 	"ai-smart-storage/internal/http/health"
 	"ai-smart-storage/internal/http/invoices"
 	"ai-smart-storage/internal/http/middleware"
 	"ai-smart-storage/internal/http/plans"
 	"ai-smart-storage/internal/http/storage"
 	"ai-smart-storage/internal/http/subscriptions"
+	"ai-smart-storage/internal/http/usagequota"
 	"ai-smart-storage/internal/http/users"
 	whatsapphttp "ai-smart-storage/internal/http/whatsapp"
 	r2storage "ai-smart-storage/internal/storage"
@@ -48,13 +51,16 @@ func main() {
 	app.Use(middleware.OpenCORS())
 	health.New().Register(app)
 	users.New(store).Register(app)
+	usagequota.New(store).Register(app)
+	ai_logs.New(store).Register(app)
 	business.New(store).Register(app)
+	documents.New(store, r2).Register(app)
 	plans.New(store).Register(app)
 	subscriptions.New(store).Register(app)
 	invoices.New(store).Register(app)
 	storage.New(r2).Register(app)
-	chat.New(aiClient).Register(app)
-	whatsapphttp.New(aiClient, store, wa).Register(app)
+	chat.New(aiClient, store, cfg.MimoInputCost, cfg.MimoOutputCost).Register(app)
+	whatsapphttp.New(aiClient, store, wa, cfg.SignupURL).Register(app)
 	log.Printf("API listening on :%s", cfg.Port)
 	log.Fatal(app.Listen(":" + cfg.Port))
 }

@@ -17,11 +17,14 @@ type Config struct {
 	MimoBaseURL       string
 	MimoModel         string
 	MimoTimeoutSec    int
+	MimoInputCost     float64
+	MimoOutputCost    float64
 	WhatsAppVerify    string
 	WhatsAppAppSecret string
 	WhatsAppToken     string
 	WhatsAppPhoneID   string
 	WhatsAppGraphVer  string
+	SignupURL         string
 }
 
 func Load() Config {
@@ -37,12 +40,23 @@ func Load() Config {
 		MimoBaseURL:       value("MIMO_BASE_URL", "https://api.xiaomimimo.com/v1"),
 		MimoModel:         value("MIMO_MODEL", "mimo-v2.5"),
 		MimoTimeoutSec:    integer("MIMO_TIMEOUT_SECONDS", 120),
+		MimoInputCost:     decimal("MIMO_INPUT_COST_PER_1K", 0),
+		MimoOutputCost:    decimal("MIMO_OUTPUT_COST_PER_1K", 0),
 		WhatsAppVerify:    os.Getenv("WHATSAPP_VERIFY_TOKEN"),
 		WhatsAppAppSecret: os.Getenv("WHATSAPP_APP_SECRET"),
 		WhatsAppToken:     os.Getenv("WHATSAPP_ACCESS_TOKEN"),
 		WhatsAppPhoneID:   os.Getenv("WHATSAPP_PHONE_NUMBER_ID"),
 		WhatsAppGraphVer:  value("WHATSAPP_GRAPH_VERSION", "v22.0"),
+		SignupURL:         value("SIGNUP_URL", "http://localhost:8080/signup"),
 	}
+}
+
+func decimal(key string, fallback float64) float64 {
+	value, err := strconv.ParseFloat(os.Getenv(key), 64)
+	if err != nil || value < 0 {
+		return fallback
+	}
+	return value
 }
 
 func value(key, fallback string) string {

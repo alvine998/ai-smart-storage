@@ -57,6 +57,10 @@ func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64,
 	return err
 }
 
+func (s *Store) Delete(ctx context.Context, key string) error {
+	return s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{})
+}
+
 func (s *Store) Get(ctx context.Context, key string) (*Object, error) {
 	object, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
 	if err != nil {
