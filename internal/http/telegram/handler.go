@@ -128,6 +128,10 @@ func (h *Handler) Receive(c *fiber.Ctx) error {
 		go h.handleCheckFiles(msg.Chat.ID, msg.From.ID)
 		return c.SendStatus(fiber.StatusOK)
 	}
+	if cmd == "/help" {
+		go h.handleHelp(msg.Chat.ID)
+		return c.SendStatus(fiber.StatusOK)
+	}
 	if cmd == "/link" {
 		arg := ""
 		if strings.HasPrefix(msg.Text, "/link ") {
@@ -315,10 +319,10 @@ func (h *Handler) handleStart(chatID int64, name string) {
 	}
 	existing, err := h.store.UserByTelegramChat(ctx, chatID)
 	if err == nil && existing > 0 {
-		h.sendNotice(ctx, chatID, "Welcome back, "+name+"!")
+		h.sendNotice(ctx, chatID, "Welcome back, "+name+"! Send /help for all commands.")
 		return
 	}
-	h.sendNotice(ctx, chatID, "Welcome, "+name+"! Send /sync and share your contact to link your account.")
+	h.sendNotice(ctx, chatID, "Welcome, "+name+"! Send /sync and share your contact to link your account. Send /help for all commands.")
 }
 
 func (h *Handler) handleSync(chatID int64) {
@@ -569,7 +573,7 @@ func (h *Handler) handleCheckBalance(chatID int64) {
 	msg.WriteString("📊 Account Balance\n\n")
 	msg.WriteString(fmt.Sprintf("Status: %s\n", access.Status))
 	msg.WriteString(fmt.Sprintf("Period ends: %s\n\n", periodEnd))
-	msg.WriteString(fmt.Sprintf("Storage: %.2f / %.2f GB (%.0f%%)\n", storageUsed, storageLimit, storagePct))
+	msg.WriteString(fmt.Sprintf("Storage: %.6f / %.2f GB (%.2f%%)\n", storageUsed, storageLimit, storagePct))
 	msg.WriteString(fmt.Sprintf("AI Queries: %d / %d\n", access.AIQueriesUsed, access.AIQueryLimit))
 	msg.WriteString(fmt.Sprintf("AI Docs: %d / %d\n", access.AIDocsUsed, access.AIDocsLimit))
 	if access.InGracePeriod(time.Now().UTC()) {
@@ -617,6 +621,27 @@ func (h *Handler) handleCheckFiles(chatID int64, fromID int64) {
 	}
 	list.WriteString("\nTo download one, send the exact filename. Search with: cari file <name>")
 	h.sendNotice(ctx, chatID, list.String())
+}
+
+func (h *Handler) handleHelp(chatID int64) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("telegram help panic: %v", r)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	msg := `🤖 AI Smart Storage — Help
+
+📎 Send any document or photo to store it in your cloud storage.
+🔍 Search files: send "cari file <name>" or "find my <name>" — the bot replies with matches and can send them back.
+📋 /checkfiles — list all your stored files.
+💰 /balance — view your storage and AI usage.
+🔗 /sync — link your Telegram account (share your contact).
+🔗 /link <email> — link your account by email.
+
+💬 Type a question in any language to chat with the AI about your files.`
+	h.sendNotice(ctx, chatID, msg)
 }
 
 // extractSearchQuery detects file-search requests. The search phrase must
