@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     phone_number VARCHAR(32) NULL,
+    telegram_chat_id BIGINT NULL UNIQUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -85,7 +86,7 @@ CREATE TABLE IF NOT EXISTS documents (
     category VARCHAR(120) NULL,
     summary TEXT NULL,
     metadata JSON NULL,
-    uploaded_via ENUM('whatsapp', 'web') NOT NULL DEFAULT 'web',
+    uploaded_via ENUM('whatsapp', 'web', 'telegram') NOT NULL DEFAULT 'web',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP NULL,
     CONSTRAINT fk_documents_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,

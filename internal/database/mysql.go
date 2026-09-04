@@ -6,19 +6,27 @@ import (
 	"errors"
 	"time"
 
+	"ai-smart-storage/internal/crypto"
 	phoneutil "ai-smart-storage/internal/phone"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 type Store struct {
-	db *sql.DB
+	db        *sql.DB
+	msgCipher *crypto.Cipher
 }
 
 // TxFn is a callback function that executes within a transaction
 type TxFn func(context.Context, *sql.Tx) error
 
-func Open(dsn string) (*Store, error) {
+// Open connects to MySQL. messageKey enables at-rest encryption of chat
+// message content when set; rows written while it was empty stay readable.
+func Open(dsn, messageKey string) (*Store, error) {
+	msgCipher, err := crypto.NewCipher(messageKey)
+	if err != nil {
+		return nil, err
+	}
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, err
@@ -31,7 +39,7 @@ func Open(dsn string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, msgCipher: msgCipher}, nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -58,7 +66,11 @@ func (s *Store) WithTx(ctx context.Context, fn TxFn) error {
 
 func (s *Store) SaveMessage(ctx context.Context, waID, phone, role, content string) error {
 	phone = phoneutil.Normalize(phone)
-	_, err := s.db.ExecContext(ctx, `
+	content, err := s.msgCipher.Encrypt(content)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO messages (wa_message_id, phone_number, role, content)
 		VALUES (NULLIF(?, ''), ?, ?, ?)
 		ON DUPLICATE KEY UPDATE content = VALUES(content)`, waID, phone, role, content)
@@ -77,6 +89,9 @@ func (s *Store) History(ctx context.Context, phone string, limit int) ([]Message
 	for rows.Next() {
 		var message Message
 		if err := rows.Scan(&message.Role, &message.Content); err != nil {
+			return nil, err
+		}
+		if message.Content, err = s.msgCipher.Decrypt(message.Content); err != nil {
 			return nil, err
 		}
 		messages = append(messages, message)

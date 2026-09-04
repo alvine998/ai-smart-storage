@@ -8,7 +8,8 @@
       "Shell(FIBER=$(go env GOMODCACHE)/github.com/gofiber/fiber/v2@v2.52.6; grep -n \"func (grp \\*Group) Add\" -A 8 $FIBER/group.go)",
       "Shell(FIBER=$(go env GOMODCACHE)/github.com/gofiber/fiber/v2@v2.52.6; grep -rn \"func getGroupPath\" -A 12 $FIBER/ | head -18)",
       "Shell(grep -q \"APP_JWT_SECRET\" .env || printf '\\nAPP_JWT_SECRET=\\nJWT_TTL_HOURS=24\\nCORS_ALLOWED_ORIGINS=*\\n' >> .env; grep -c \"APP_JWT_SECRET\" .env)",
-      "Shell(go build ./... && echo BUILD_OK; go vet ./... 2>&1 | head -10; python3 -m json.tool ai-smart-storage.postman_collection.json > /dev/null && echo POSTMAN_JSON_OK; go test ./... 2>&1 | tail -22)"
+      "Shell(go build ./... && echo BUILD_OK; go vet ./... 2>&1 | head -10; python3 -m json.tool ai-smart-storage.postman_collection.json > /dev/null && echo POSTMAN_JSON_OK; go test ./... 2>&1 | tail -22)",
+      "Shell(gofmt:*)"
     ],
     "deny": [],
     "defaultMode": "default"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 )
 
 var ErrDocumentNotFound = errors.New("document not found")
@@ -77,6 +78,41 @@ func (s *Store) Documents(ctx context.Context, userID uint64, limit int, offset 
 		offset = 0
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id, user_id, file_name, r2_key, file_size, mime_type, category, summary, metadata, uploaded_via, created_at, deleted_at FROM documents WHERE user_id = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT ? OFFSET ?`, userID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]Document, 0)
+	for rows.Next() {
+		item, err := scanDocument(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) SearchDocuments(ctx context.Context, userID uint64, query string, limit int) ([]Document, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	if limit > 20 {
+		limit = 20
+	}
+	words := strings.Fields(query)
+	if len(words) == 0 {
+		return []Document{}, nil
+	}
+	where := "1=1"
+	args := []any{userID}
+	for _, w := range words {
+		where += " AND (file_name LIKE ? OR r2_key LIKE ? OR summary LIKE ?)"
+		pattern := "%" + w + "%"
+		args = append(args, pattern, pattern, pattern)
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, user_id, file_name, r2_key, file_size, mime_type, category, summary, metadata, uploaded_via, created_at, deleted_at FROM documents WHERE user_id = ? AND deleted_at IS NULL AND `+where+` ORDER BY created_at DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}

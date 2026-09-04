@@ -57,8 +57,8 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 	if uploadedVia == "" {
 		uploadedVia = "web"
 	}
-	if uploadedVia != "web" && uploadedVia != "whatsapp" {
-		return fiber.NewError(fiber.StatusBadRequest, "uploaded_via must be web or whatsapp")
+	if uploadedVia != "web" && uploadedVia != "whatsapp" && uploadedVia != "telegram" {
+		return fiber.NewError(fiber.StatusBadRequest, "uploaded_via must be web, whatsapp, or telegram")
 	}
 	if h.store != nil {
 		storageGB := float64(file.Size) / math.Pow10(9)

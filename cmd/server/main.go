@@ -28,8 +28,10 @@ import (
 	"ai-smart-storage/internal/http/subscriptions"
 	"ai-smart-storage/internal/http/usagequota"
 	"ai-smart-storage/internal/http/users"
+	telegramhttp "ai-smart-storage/internal/http/telegram"
 	whatsapphttp "ai-smart-storage/internal/http/whatsapp"
 	r2storage "ai-smart-storage/internal/storage"
+	"ai-smart-storage/internal/telegram"
 	"ai-smart-storage/internal/whatsapp"
 
 	"github.com/gofiber/fiber/v2"
@@ -43,7 +45,7 @@ func main() {
 
 	// ── MySQL ──────────────────────────────────────────────────────
 	start := time.Now()
-	store, err := database.Open(cfg.MySQLDSN)
+	store, err := database.Open(cfg.MySQLDSN, cfg.MessageEncryptionKey)
 	if err != nil {
 		log.Printf("[diagnostics] ✗ DB (MySQL)     FAILED error=%v latency=%dms dsn=%s", err, time.Since(start).Milliseconds(), maskDSN(cfg.MySQLDSN))
 		log.Fatalf("mysql: %v", err)
@@ -61,7 +63,7 @@ func main() {
 		PublicURL:       cfg.R2PublicURL,
 	})
 	if err != nil {
-		log.Printf("[diagnostics] ✗ Cloudflare R2    FAILED error=%v latency=%dms bucket=%s endpoint=%s", err, time.Since(r2Start).Milliseconds(), cfg.R2Bucket, cfg.R2Endpoint)
+		log.Printf("[diagnostics] ✗ Cloudflare R2    FAILED error=%v latency=%dms bucket=%s endpoint=%s (hint: R2_ENDPOINT must be https://<account-id>.r2.cloudflarestorage.com, not a public R2.dev URL)", err, time.Since(r2Start).Milliseconds(), cfg.R2Bucket, cfg.R2Endpoint)
 		log.Fatalf("r2: %v", err)
 	}
 	// R2 client is constructed synchronously; bucket reachability is verified
@@ -79,6 +81,7 @@ func main() {
 		log.Printf("[diagnostics] ℹ MiMo billing mode: Pay-as-you-go (input $%.5f/1K output $%.5f/1K)", cfg.MimoInputCost, cfg.MimoOutputCost)
 	}
 	wa := whatsapp.New(cfg.WhatsAppToken, cfg.WhatsAppVerify, cfg.WhatsAppAppSecret, cfg.WhatsAppPhoneID, cfg.WhatsAppGraphVer)
+	tg := telegram.New(cfg.TelegramBotToken, cfg.TelegramWebhookSecret)
 	redisOptions, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {
 		log.Printf("[diagnostics] ✗ Redis            FAILED error=%v (invalid REDIS_URL=%s)", err, cfg.RedisURL)
@@ -107,6 +110,8 @@ func main() {
 	users.New(store).RegisterPublic(app)
 	whatsappHandler := whatsapphttp.New(aiClient, store, wa, cfg.SignupURL, redisClient)
 	whatsappHandler.Register(app)
+	telegramHandler := telegramhttp.New(aiClient, store, tg, r2, cfg.SignupURL, redisClient)
+	telegramHandler.Register(app)
 	api := app.Group("/", middleware.RequireAuth(secret))
 	users.New(store).Register(api)
 	usagequota.New(store).Register(api)
@@ -119,6 +124,7 @@ func main() {
 	storage.NewWithDB(r2, store).Register(api)
 	chat.New(aiClient, store, cfg.MimoInputCost, cfg.MimoOutputCost).Register(api)
 	whatsappHandler.RegisterProtected(api)
+	telegramHandler.RegisterProtected(api)
 	log.Printf("API listening on :%s", cfg.Port)
 
 	// Set up graceful shutdown

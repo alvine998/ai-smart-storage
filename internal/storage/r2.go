@@ -39,6 +39,10 @@ func New(config Config) (*Store, error) {
 	if err != nil || parsed.Host == "" {
 		return nil, fmt.Errorf("invalid R2_ENDPOINT")
 	}
+	// R2.dev is a public CDN domain; the S3 API endpoint is <account-id>.r2.cloudflarestorage.com.
+	if strings.HasSuffix(parsed.Host, ".r2.dev") {
+		return nil, fmt.Errorf("R2_ENDPOINT %q is a public R2.dev CDN domain, not the S3 API endpoint — use https://<account-id>.r2.cloudflarestorage.com instead", config.Endpoint)
+	}
 	client, err := minio.New(parsed.Host, &minio.Options{
 		Creds:  credentials.NewStaticV4(config.AccessKeyID, config.SecretAccessKey, ""),
 		Secure: parsed.Scheme != "http",
