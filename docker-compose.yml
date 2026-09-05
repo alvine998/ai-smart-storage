@@ -1,8 +1,8 @@
 services:
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    # No ports published: host 6379 is already in use (system redis / other project).
+    # api reaches it via docker DNS redis:6379, so no host binding is needed.
 
   api:
     build: .
