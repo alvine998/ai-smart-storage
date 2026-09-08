@@ -15,7 +15,7 @@ import (
 
 type Service struct {
 	token, verifyToken, appSecret, phoneID, graphVersion string
-	client                                                *http.Client
+	client                                               *http.Client
 }
 
 func New(token, verifyToken, appSecret, phoneID, graphVersion string) *Service {

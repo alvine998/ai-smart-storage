@@ -116,10 +116,10 @@ type Incoming struct {
 			ID   int64  `json:"id"`
 			Type string `json:"type"`
 		} `json:"chat"`
-		Date     int64  `json:"date"`
-		Text     string `json:"text"`
-		Caption  string `json:"caption"`
-		Contact  *struct {
+		Date    int64  `json:"date"`
+		Text    string `json:"text"`
+		Caption string `json:"caption"`
+		Contact *struct {
 			PhoneNumber string `json:"phone_number"`
 			FirstName   string `json:"first_name"`
 			LastName    string `json:"last_name"`
@@ -206,7 +206,7 @@ func (s *Service) SendContactRequest(ctx context.Context, chatID int64) error {
 	payload, _ := json.Marshal(map[string]any{
 		"chat_id":      chatID,
 		"text":         "Tap the button below to share your phone number:",
-		"reply_markup": map[string]any{"keyboard": [][]map[string]any{{{ "text": "Share Phone Number", "request_contact": true }}}, "one_time_keyboard": true, "resize_keyboard": true},
+		"reply_markup": map[string]any{"keyboard": [][]map[string]any{{{"text": "Share Phone Number", "request_contact": true}}}, "one_time_keyboard": true, "resize_keyboard": true},
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.apiURL("sendMessage"), bytes.NewReader(payload))
 	if err != nil {

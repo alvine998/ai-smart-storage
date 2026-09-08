@@ -21,9 +21,9 @@ import (
 // Result holds a single dependency check outcome.
 type Result struct {
 	Name      string        `json:"name"`
-	Status    string        `json:"status"` // "ok" | "error" | "skipped"
-	Latency   time.Duration `json:"-"`               // internal duration for logging
-	LatencyMs int64         `json:"latency_ms"`      // milliseconds exposed via JSON
+	Status    string        `json:"status"`     // "ok" | "error" | "skipped"
+	Latency   time.Duration `json:"-"`          // internal duration for logging
+	LatencyMs int64         `json:"latency_ms"` // milliseconds exposed via JSON
 	Detail    string        `json:"detail,omitempty"`
 	Error     string        `json:"error,omitempty"`
 }

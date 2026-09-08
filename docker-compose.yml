@@ -5,6 +5,9 @@ services:
     # api reaches it via docker DNS redis:6379, so no host binding is needed.
 
   api:
+    # Supports GHCR deploys: set API_IMAGE=ghcr.io/<owner>/<repo>:<tag> on the
+    # server to run the prebuilt image instead of building locally.
+    image: ${API_IMAGE:-ghcr.io/alvine998/ai-smart-storage:latest}
     build: .
     env_file: .env
     environment:

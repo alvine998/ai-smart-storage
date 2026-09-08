@@ -40,12 +40,12 @@ func (h *Handler) Register(app fiber.Router) {
 }
 
 type HealthResponse struct {
-	Status    string `json:"status"`
-	Database  string `json:"database"`
-	Storage   string `json:"storage"`
-	Redis     string `json:"redis"`
-	WhatsApp  string `json:"whatsapp"`
-	Mimo      string `json:"mimo"`
+	Status    string               `json:"status"`
+	Database  string               `json:"database"`
+	Storage   string               `json:"storage"`
+	Redis     string               `json:"redis"`
+	WhatsApp  string               `json:"whatsapp"`
+	Mimo      string               `json:"mimo"`
 	Details   []diagnostics.Result `json:"details,omitempty"`
 	CheckedAt string               `json:"checked_at"`
 }
