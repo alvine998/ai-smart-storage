@@ -19,8 +19,30 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # Gate: nothing builds or deploys unless vet + tests pass first.
+  test:
+    name: Gate (vet + tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test ./... -race -count=1
+
   docker:
     name: Build and push image
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -69,7 +91,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+      # NOTE: the `env` context can't be referenced inside a job-level `env:`
+      # block, so use the `github` context (which is available here) directly.
+      IMAGE: ghcr.io/${{ github.repository }}:latest
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
