@@ -32,3 +32,29 @@ func TestValidSignature(t *testing.T) {
 		t.Fatal("expected invalid signature")
 	}
 }
+
+func TestIsConfiguredRequiresWebhookCredentials(t *testing.T) {
+	base := []string{"access-token", "verify-token", "app-secret", "phone-id", "v22.0"}
+	for i, name := range []string{"access token", "verify token", "app secret", "phone ID", "graph version"} {
+		values := append([]string(nil), base...)
+		values[i] = ""
+		service := New(values[0], values[1], values[2], values[3], values[4])
+		if service.IsConfigured() {
+			t.Errorf("IsConfigured() = true with missing %s", name)
+		}
+	}
+}
+
+func TestValidSignatureRequiresAppSecret(t *testing.T) {
+	service := New("access-token", "verify-token", "", "phone-id", "v22.0")
+	if service.ValidSignature([]byte("body"), "sha256=anything") {
+		t.Fatal("ValidSignature() = true with empty app secret")
+	}
+}
+
+func TestVerifyRequiresVerifyToken(t *testing.T) {
+	service := New("access-token", "", "app-secret", "phone-id", "v22.0")
+	if _, err := service.Verify("subscribe", "challenge", ""); err == nil {
+		t.Fatal("Verify() succeeded with empty verify token")
+	}
+}

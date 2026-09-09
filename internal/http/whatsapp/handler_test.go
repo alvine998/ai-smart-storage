@@ -50,6 +50,19 @@ func TestVerifyRejectsBadToken(t *testing.T) {
 	}
 }
 
+func TestMaskPhone(t *testing.T) {
+	tests := map[string]string{
+		"+1 (555) 123-4567": "*******4567",
+		"123":               "****",
+		"":                  "****",
+	}
+	for input, want := range tests {
+		if got := maskPhone(input); got != want {
+			t.Errorf("maskPhone(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestReceiveRejectsInvalidSignature(t *testing.T) {
 	wa := whatsapp.New("token", "verify-token", "my-secret", "phone-id", "v22.0")
 	h := New(nil, nil, wa, nil, "http://example.com/signup", nil)

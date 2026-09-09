@@ -108,14 +108,42 @@ jobs:
             cd "${{ secrets.VPS_DEPLOY_PATH }}"
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
             docker pull "$IMAGE"
+            docker run --rm --env-file .env --entrypoint /bin/sh "$IMAGE" -c '
+              required="MYSQL_DSN R2_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY MIMO_API_KEY MIMO_BASE_URL MIMO_MODEL WHATSAPP_VERIFY_TOKEN WHATSAPP_APP_SECRET WHATSAPP_ACCESS_TOKEN WHATSAPP_PHONE_NUMBER_ID WHATSAPP_GRAPH_VERSION"
+              for name in $required; do
+                eval "value=\${$name:-}"
+                if [ -z "$value" ]; then
+                  echo "Missing required deployment variable: $name"
+                  exit 1
+                fi
+              done
+              case "$MYSQL_DSN" in
+                *"tcp(localhost:"*|*"tcp(127.0.0.1:"*)
+                  echo "MYSQL_DSN points to loopback inside the API container; use the Compose MySQL service name or host.docker.internal"
+                  exit 1
+                  ;;
+              esac
+            '
             # docker-compose.yml supports ${API_IMAGE}: the pulled image is used instead of a local build.
-            API_IMAGE="$IMAGE" docker compose pull api || true
-            API_IMAGE="$IMAGE" docker compose up -d
+            API_IMAGE="$IMAGE" docker compose config --quiet
+            API_IMAGE="$IMAGE" docker compose pull api
+            API_IMAGE="$IMAGE" docker compose up -d --remove-orphans
             docker image prune -f
-            sleep 5
+            healthy=0
+            for attempt in $(seq 1 12); do
+              if curl -fsS http://localhost:4009/health; then
+                healthy=1
+                break
+              fi
+              sleep 5
+            done
             docker compose ps
-            docker compose logs --tail=50 api || true
-            curl -fsS http://localhost:4009/health || curl -fsS http://localhost:8080/health || echo "WARNING: healthcheck failed - check container logs and port mapping"
+            if [ "$healthy" -ne 1 ]; then
+              docker compose logs --tail=100 api
+              echo "API health check failed"
+              exit 1
+            fi
+            docker compose logs --tail=50 api
         env:
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}

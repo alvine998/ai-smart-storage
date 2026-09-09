@@ -191,7 +191,7 @@ func (c *Checker) checkWhatsApp(ctx context.Context) (string, error) {
 	}
 	detail := fmt.Sprintf("phoneID=%s graph=%s", maskTail(c.cfg.WhatsAppPhoneID, 4), c.cfg.WhatsAppGraphVer)
 	if !c.wa.IsConfigured() {
-		return detail, fmt.Errorf("skipped: WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID not set")
+		return detail, fmt.Errorf("WhatsApp credentials incomplete (WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET, and WHATSAPP_GRAPH_VERSION are required)")
 	}
 	if err := c.wa.Ping(ctx); err != nil {
 		return detail, err

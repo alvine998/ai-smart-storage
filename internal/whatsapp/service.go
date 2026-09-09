@@ -59,11 +59,11 @@ func (s *Service) Ping(ctx context.Context) error {
 
 // IsConfigured returns true when mandatory credentials are present.
 func (s *Service) IsConfigured() bool {
-	return s != nil && s.token != "" && s.phoneID != ""
+	return s != nil && s.token != "" && s.phoneID != "" && s.verifyToken != "" && s.appSecret != "" && s.graphVersion != ""
 }
 
 func (s *Service) Verify(mode, challenge, verifyToken string) (string, error) {
-	if mode != "subscribe" || verifyToken != s.verifyToken {
+	if s == nil || s.verifyToken == "" || mode != "subscribe" || verifyToken != s.verifyToken {
 		return "", fmt.Errorf("webhook verification failed")
 	}
 	return challenge, nil
@@ -71,7 +71,7 @@ func (s *Service) Verify(mode, challenge, verifyToken string) (string, error) {
 
 func (s *Service) ValidSignature(body []byte, signature string) bool {
 	const prefix = "sha256="
-	if len(signature) <= len(prefix) || signature[:len(prefix)] != prefix {
+	if s == nil || s.appSecret == "" || len(signature) <= len(prefix) || signature[:len(prefix)] != prefix {
 		return false
 	}
 	expected := make([]byte, sha256.Size)

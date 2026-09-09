@@ -212,9 +212,9 @@ func (h *Handler) reply(id, phone, text string) {
 		}
 	}()
 	phone = phoneutil.Normalize(phone)
-	log.Printf("whatsapp reply: from=%s text=%q", phone, text)
+	log.Printf("whatsapp reply: message_id=%s from=%s text=%q", id, maskPhone(phone), text)
 	if h.store == nil {
-		log.Printf("whatsapp reply: store not configured")
+		h.failReply(context.Background(), id, phone, "store", errors.New("store not configured"))
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -225,7 +225,7 @@ func (h *Handler) reply(id, phone, text string) {
 		return
 	}
 	if err != nil {
-		log.Printf("check WhatsApp access: %v", err)
+		h.failReply(ctx, id, phone, "access", err)
 		return
 	}
 	if !access.WithinQuota() {
@@ -243,7 +243,7 @@ func (h *Handler) reply(id, phone, text string) {
 		log.Printf("open WhatsApp window: %v", err)
 	}
 	if err := h.store.SaveMessage(ctx, id, phone, "user", text); err != nil {
-		log.Printf("save inbound message: %v", err)
+		h.failReply(ctx, id, phone, "persist inbound", err)
 		return
 	}
 	if command, ok, parseErr := filecommands.Parse(text); ok {
@@ -267,16 +267,16 @@ func (h *Handler) reply(id, phone, text string) {
 			h.sendNotice(ctx, phone, "Your subscription has expired. Please renew: "+h.signupURL)
 			return
 		}
-		log.Printf("check AI quota: %v", err)
+		h.failReply(ctx, id, phone, "AI quota", err)
 		return
 	}
 	if err := h.store.IncrementUsageQuota(ctx, userID, "0", 0, 1, 0); err != nil {
-		log.Printf("reserve AI query usage: %v", err)
+		h.failReply(ctx, id, phone, "reserve AI query", err)
 		return
 	}
 	history, err := h.store.History(ctx, phone, 20)
 	if err != nil {
-		log.Printf("load history: %v", err)
+		h.failReply(ctx, id, phone, "history", err)
 		return
 	}
 	messages := make([]ai.Message, len(history))
@@ -285,11 +285,11 @@ func (h *Handler) reply(id, phone, text string) {
 	}
 	var response strings.Builder
 	if h.ai == nil {
-		log.Printf("stream AI reply: AI client not configured")
+		h.failReply(ctx, id, phone, "AI client", errors.New("AI client not configured"))
 		return
 	}
 	if err := h.ai.Stream(ctx, messages, func(part string) error { response.WriteString(part); return nil }); err != nil {
-		log.Printf("stream AI reply: %v", err)
+		h.failReply(ctx, id, phone, "AI stream", err)
 		return
 	}
 	if access.InGracePeriod(time.Now().UTC()) {
@@ -297,15 +297,15 @@ func (h *Handler) reply(id, phone, text string) {
 		response.WriteString(h.signupURL)
 	}
 	if err := h.store.SaveMessage(ctx, "", phone, "assistant", response.String()); err != nil {
-		log.Printf("save AI message: %v", err)
+		h.failReply(ctx, id, phone, "persist assistant", err)
 		return
 	}
 	if h.wa == nil {
-		log.Printf("send WhatsApp message: WA client not configured")
+		h.failReply(ctx, id, phone, "WhatsApp client", errors.New("WA client not configured"))
 		return
 	}
 	if err := h.wa.SendText(ctx, phone, response.String()); err != nil {
-		log.Printf("send WhatsApp message: %v", err)
+		h.failReply(ctx, id, phone, "Graph API send", err)
 		return
 	}
 	open, err := h.store.WAWindowOpen(ctx, userID, time.Now().UTC())
@@ -424,6 +424,22 @@ func (h *Handler) whatsAppAccess(ctx context.Context, phone string) (database.Wh
 		}
 	}
 	return access, nil
+}
+
+func (h *Handler) failReply(ctx context.Context, messageID, phone, stage string, err error) {
+	log.Printf("whatsapp reply failed: message_id=%s from=%s stage=%s error=%v", messageID, maskPhone(phone), stage, err)
+	if ctx.Err() != nil {
+		return
+	}
+	h.sendNotice(ctx, phone, "I couldn't process that message. Please try again later.")
+}
+
+func maskPhone(phone string) string {
+	phone = phoneutil.Normalize(phone)
+	if len(phone) <= 4 {
+		return "****"
+	}
+	return strings.Repeat("*", len(phone)-4) + phone[len(phone)-4:]
 }
 
 func (h *Handler) sendNotice(ctx context.Context, phone, text string) {
