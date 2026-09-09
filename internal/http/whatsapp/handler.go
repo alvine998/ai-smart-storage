@@ -1,18 +1,26 @@
 package whatsapp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log"
+	"math"
 	"strings"
 	"time"
 
 	"ai-smart-storage/internal/ai"
 	"ai-smart-storage/internal/database"
+	"ai-smart-storage/internal/filecommands"
 	"ai-smart-storage/internal/http/middleware"
 	phoneutil "ai-smart-storage/internal/phone"
+	r2storage "ai-smart-storage/internal/storage"
 	service "ai-smart-storage/internal/whatsapp"
+
+	"github.com/google/uuid"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
@@ -23,13 +31,14 @@ type Handler struct {
 	ai        *ai.Client
 	store     *database.Store
 	wa        *service.Service
+	r2        *r2storage.Store
 	signupURL string
 	cacheTTL  time.Duration
 	redis     *redis.Client
 }
 
-func New(aiClient *ai.Client, store *database.Store, wa *service.Service, signupURL string, redisClient *redis.Client) *Handler {
-	return &Handler{ai: aiClient, store: store, wa: wa, signupURL: signupURL, redis: redisClient}
+func New(aiClient *ai.Client, store *database.Store, wa *service.Service, r2 *r2storage.Store, signupURL string, redisClient *redis.Client) *Handler {
+	return &Handler{ai: aiClient, store: store, wa: wa, r2: r2, signupURL: signupURL, redis: redisClient}
 }
 
 func (h *Handler) Register(app fiber.Router) {
@@ -90,22 +99,110 @@ func (h *Handler) Receive(c *fiber.Ctx) error {
 		log.Printf("whatsapp: unmarshal error: %v", err)
 		return fiber.ErrBadRequest
 	}
-	textMessages := 0
+	messageCount := 0
 	for _, entry := range incoming.Entry {
 		for _, change := range entry.Changes {
 			for _, message := range change.Value.Messages {
-				textMessages++
+				messageCount++
 				log.Printf("whatsapp: message type=%s from=%s id=%s", message.Type, message.From, message.ID)
-				if message.Type == "text" {
+				switch message.Type {
+				case "text":
 					go h.reply(message.ID, message.From, message.Text.Body)
+				case "document":
+					if message.Document != nil {
+						go h.handleMedia(message.ID, message.From, message.Document.ID, message.Document.Filename, message.Document.MimeType, message.Document.Caption, false)
+					}
+				case "image":
+					if message.Image != nil {
+						go h.handleMedia(message.ID, message.From, message.Image.ID, "", message.Image.MimeType, message.Image.Caption, true)
+					}
 				}
 			}
 		}
 	}
-	if textMessages == 0 {
+	if messageCount == 0 {
 		log.Printf("whatsapp: received webhook with %d entries but no messages (likely status update)", len(incoming.Entry))
 	}
 	return c.SendStatus(fiber.StatusOK)
+}
+
+func (h *Handler) handleMedia(id, phone, mediaID, fileName, mimeType, caption string, image bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("whatsapp media panic: %v", r)
+		}
+	}()
+	phone = phoneutil.Normalize(phone)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if h.store == nil || h.wa == nil || h.r2 == nil {
+		log.Printf("whatsapp media: service not configured")
+		return
+	}
+	access, err := h.whatsAppAccess(ctx, phone)
+	if errors.Is(err, database.ErrWhatsAppAccessNotFound) {
+		h.sendNotice(ctx, phone, "Number not registered. Sign up: "+h.signupURL)
+		return
+	}
+	if err != nil {
+		log.Printf("whatsapp media: access: %v", err)
+		return
+	}
+	if !access.WithinQuota() {
+		h.sendNotice(ctx, phone, "Your plan has reached its limit or needs renewal. Please renew or upgrade to continue: "+h.signupURL)
+		return
+	}
+	_ = h.store.LogWAConversation(ctx, database.WAConversation{UserID: access.UserID, WAMessageID: id, Direction: "inbound", MessageType: "media", Category: "service", Content: fileName, Cost: "0"})
+	if err := h.store.IncrementUsageQuota(ctx, access.UserID, "0", 0, 0, 1); err != nil {
+		log.Printf("whatsapp media: increment inbound usage: %v", err)
+	}
+	if err := h.store.OpenWAWindow(ctx, access.UserID, time.Now().UTC()); err != nil {
+		log.Printf("whatsapp media: open window: %v", err)
+	}
+	data, downloadedMime, err := h.wa.DownloadMedia(ctx, mediaID)
+	if err != nil {
+		log.Printf("whatsapp media: download: %v", err)
+		h.sendNotice(ctx, phone, "Failed to download media. Try again.")
+		return
+	}
+	if mimeType == "" {
+		mimeType = downloadedMime
+	}
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	if fileName == "" {
+		ext := "bin"
+		if image {
+			ext = "jpg"
+		}
+		fileName = fmt.Sprintf("whatsapp_%d.%s", time.Now().UnixNano(), ext)
+	}
+	storageGB := float64(len(data)) / math.Pow10(9)
+	if err := h.store.CheckQuota(ctx, access.UserID, storageGB, 0, 0, 0); err != nil {
+		if errors.Is(err, database.ErrQuotaExceeded) {
+			h.sendNotice(ctx, phone, "Your storage quota has been reached. Please upgrade your plan: "+h.signupURL)
+		} else {
+			log.Printf("whatsapp media: storage quota: %v", err)
+		}
+		return
+	}
+	key := fmt.Sprintf("smart-storage/%d/wa/%s/%s", access.UserID, uuid.NewString(), fileName)
+	if err := h.r2.Put(ctx, key, bytes.NewReader(data), int64(len(data)), mimeType); err != nil {
+		log.Printf("whatsapp media: R2 upload: %v", err)
+		h.sendNotice(ctx, phone, "Failed to store media. Try again.")
+		return
+	}
+	if _, err := h.store.CreateDocument(ctx, database.Document{UserID: access.UserID, FileName: fileName, R2Key: key, FileSize: uint64(len(data)), MimeType: mimeType, Summary: caption, Metadata: "{}", UploadedVia: "whatsapp"}); err != nil {
+		_ = h.r2.Delete(ctx, key)
+		log.Printf("whatsapp media: create document: %v", err)
+		h.sendNotice(ctx, phone, "Failed to save media record. Try again.")
+		return
+	}
+	if err := h.store.IncrementUsageQuota(ctx, access.UserID, fmt.Sprintf("%.6f", storageGB), 0, 0, 0); err != nil {
+		log.Printf("whatsapp media: increment storage usage: %v", err)
+	}
+	h.sendNotice(ctx, phone, "File saved: "+fileName)
 }
 
 func (h *Handler) reply(id, phone, text string) {
@@ -147,6 +244,18 @@ func (h *Handler) reply(id, phone, text string) {
 	}
 	if err := h.store.SaveMessage(ctx, id, phone, "user", text); err != nil {
 		log.Printf("save inbound message: %v", err)
+		return
+	}
+	if command, ok, parseErr := filecommands.Parse(text); ok {
+		if parseErr != nil {
+			h.sendNotice(ctx, phone, "Usage: kirim semua file, kirim semua foto, atau kirim file 1,2,3")
+			return
+		}
+		if command.All || len(command.Positions) > 0 || command.Query != "" {
+			h.handleBatchFiles(ctx, phone, userID, command)
+			return
+		}
+		h.sendNotice(ctx, phone, "Usage: kirim semua file, kirim semua foto, atau kirim file 1,2,3")
 		return
 	}
 	if err := h.store.CheckQuota(ctx, userID, 0, 0, 1, 0); err != nil {
@@ -219,6 +328,69 @@ func (h *Handler) reply(id, phone, text string) {
 	} else if err := h.store.IncrementUsageQuota(ctx, userID, "0", 0, 0, 1); err != nil {
 		log.Printf("increment outbound WhatsApp usage: %v", err)
 	}
+}
+
+func (h *Handler) handleBatchFiles(ctx context.Context, phone string, userID uint64, command filecommands.Command) {
+	if h.store == nil || h.wa == nil || h.r2 == nil {
+		h.sendNotice(ctx, phone, "Storage is not available.")
+		return
+	}
+	selection, err := filecommands.SelectWithMissing(ctx, h.store, userID, command)
+	if err != nil {
+		log.Printf("whatsapp batch files: select: %v", err)
+		h.sendNotice(ctx, phone, "Failed to select files. Try again.")
+		return
+	}
+	if len(selection.Documents) == 0 {
+		if len(selection.Missing) > 0 {
+			h.sendNotice(ctx, phone, fmt.Sprintf("File positions not found: %v", selection.Missing))
+		} else {
+			h.sendNotice(ctx, phone, "No matching files found.")
+		}
+		return
+	}
+	h.sendNotice(ctx, phone, fmt.Sprintf("Sending %d file(s)...", len(selection.Documents)))
+	sent, failed := 0, len(selection.Missing)
+	for _, document := range selection.Documents {
+		if err := h.sendStoredDocument(ctx, phone, userID, document); err != nil {
+			failed++
+			log.Printf("whatsapp batch files: send %s: %v", document.FileName, err)
+			continue
+		}
+		sent++
+	}
+	h.sendNotice(ctx, phone, fmt.Sprintf("Finished: %d sent, %d failed.", sent, failed))
+}
+
+func (h *Handler) sendStoredDocument(ctx context.Context, phone string, userID uint64, document database.Document) error {
+	if err := h.store.CheckQuota(ctx, userID, 0, 0, 0, 1); err != nil {
+		return fmt.Errorf("outbound quota: %w", err)
+	}
+	object, err := h.r2.Get(ctx, document.R2Key)
+	if err != nil {
+		return fmt.Errorf("R2 get: %w", err)
+	}
+	defer object.Close()
+	data, err := io.ReadAll(object)
+	if err != nil {
+		return fmt.Errorf("read file: %w", err)
+	}
+	if err := h.wa.SendMedia(ctx, phone, document.FileName, document.MimeType, data, strings.HasPrefix(strings.ToLower(document.MimeType), "image/")); err != nil {
+		return fmt.Errorf("send media: %w", err)
+	}
+	open, err := h.store.WAWindowOpen(ctx, userID, time.Now().UTC())
+	if err != nil {
+		log.Printf("whatsapp batch files: check window: %v", err)
+	}
+	category := "utility"
+	if open {
+		category = "service"
+	}
+	_ = h.store.LogWAConversation(ctx, database.WAConversation{UserID: userID, Direction: "outbound", MessageType: "media", Category: category, Content: document.FileName, Cost: "0"})
+	if err := h.store.IncrementUsageQuota(ctx, userID, "0", 0, 0, 1); err != nil {
+		return fmt.Errorf("increment outbound quota: %w", err)
+	}
+	return nil
 }
 
 func (h *Handler) whatsAppAccess(ctx context.Context, phone string) (database.WhatsAppAccess, error) {

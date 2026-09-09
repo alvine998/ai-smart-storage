@@ -21,6 +21,14 @@ func TestExtractSearchQuery(t *testing.T) {
 		{text: "cari laporan", query: "laporan", found: true},
 		{text: "find my report", query: "report", found: true},
 		{text: "find my report file", query: "report", found: true},
+		{text: "kirim file laporan", query: "laporan", found: true},
+		{text: "kirimkan file laporan", query: "laporan", found: true},
+		{text: "download file laporan", query: "laporan", found: true},
+		{text: "unduh file laporan", query: "laporan", found: true},
+		{text: "ambil file laporan", query: "laporan", found: true},
+		{text: "send file laporan", query: "laporan", found: true},
+		{text: "kirim file", query: "", found: true},
+		{text: "tolong kirim file laporan", query: "", found: false},
 		// Words ending in "file" must not be truncated.
 		{text: "cari profile", query: "profile", found: true},
 		// Bare command asks for usage.

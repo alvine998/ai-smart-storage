@@ -15,7 +15,7 @@ import (
 
 func TestVerifySuccess(t *testing.T) {
 	wa := whatsapp.New("access-token", "verify-token", "secret", "phone-id", "v22.0")
-	h := New(nil, nil, wa, "http://example.com/signup", nil)
+	h := New(nil, nil, wa, nil, "http://example.com/signup", nil)
 	app := fiber.New()
 	h.Register(app)
 
@@ -36,7 +36,7 @@ func TestVerifySuccess(t *testing.T) {
 
 func TestVerifyRejectsBadToken(t *testing.T) {
 	wa := whatsapp.New("access-token", "correct-token", "secret", "phone-id", "v22.0")
-	h := New(nil, nil, wa, "http://example.com/signup", nil)
+	h := New(nil, nil, wa, nil, "http://example.com/signup", nil)
 	app := fiber.New()
 	h.Register(app)
 
@@ -52,7 +52,7 @@ func TestVerifyRejectsBadToken(t *testing.T) {
 
 func TestReceiveRejectsInvalidSignature(t *testing.T) {
 	wa := whatsapp.New("token", "verify-token", "my-secret", "phone-id", "v22.0")
-	h := New(nil, nil, wa, "http://example.com/signup", nil)
+	h := New(nil, nil, wa, nil, "http://example.com/signup", nil)
 	app := fiber.New()
 	h.Register(app)
 
@@ -71,7 +71,7 @@ func TestReceiveRejectsInvalidSignature(t *testing.T) {
 func TestReceiveAcceptsValidSignature(t *testing.T) {
 	secret := "my-secret"
 	wa := whatsapp.New("token", "verify-token", secret, "phone-id", "v22.0")
-	h := New(nil, nil, wa, "http://example.com/signup", nil)
+	h := New(nil, nil, wa, nil, "http://example.com/signup", nil)
 	app := fiber.New()
 	h.Register(app)
 
@@ -95,7 +95,7 @@ func TestReceiveAcceptsValidSignature(t *testing.T) {
 func TestReceiveRejectsInvalidJSON(t *testing.T) {
 	secret := "secret"
 	wa := whatsapp.New("token", "verify-token", secret, "phone-id", "v22.0")
-	h := New(nil, nil, wa, "http://example.com/signup", nil)
+	h := New(nil, nil, wa, nil, "http://example.com/signup", nil)
 	app := fiber.New()
 	h.Register(app)
 
@@ -118,7 +118,7 @@ func TestReceiveRejectsInvalidJSON(t *testing.T) {
 func TestReceiveIgnoresNonTextMessages(t *testing.T) {
 	secret := "secret"
 	wa := whatsapp.New("token", "verify-token", secret, "phone-id", "v22.0")
-	h := New(nil, nil, wa, "http://example.com/signup", nil)
+	h := New(nil, nil, wa, nil, "http://example.com/signup", nil)
 	app := fiber.New()
 	h.Register(app)
 
@@ -140,7 +140,7 @@ func TestReceiveIgnoresNonTextMessages(t *testing.T) {
 
 func TestListConversationsRequiresAuth(t *testing.T) {
 	wa := whatsapp.New("token", "verify-token", "secret", "phone-id", "v22.0")
-	h := New(nil, nil, wa, "http://example.com/signup", nil)
+	h := New(nil, nil, wa, nil, "http://example.com/signup", nil)
 	app := fiber.New()
 	// Register protected route without auth middleware - but handler calls middleware.SelfID which checks user_id
 	h.RegisterProtected(app)
@@ -158,7 +158,7 @@ func TestListConversationsRequiresAuth(t *testing.T) {
 
 func TestListConversationsWithAuth(t *testing.T) {
 	wa := whatsapp.New("token", "verify-token", "secret", "phone-id", "v22.0")
-	h := New(nil, nil, wa, "http://example.com/signup", nil)
+	h := New(nil, nil, wa, nil, "http://example.com/signup", nil)
 	app := fiber.New()
 	app.Use(func(c *fiber.Ctx) error {
 		c.Locals("user_id", uint64(1))

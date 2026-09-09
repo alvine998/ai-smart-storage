@@ -108,6 +108,8 @@ Feature handlers live in separate packages under `internal/http`:
 
 `POST /v1/chat/stream` is wired for Server-Sent Events. The WhatsApp handler stores inbound messages, loads the latest 20 messages, streams a MiMo reply, stores it, and sends it through the Graph API.
 
+Telegram and WhatsApp support multiple media messages for upload. To retrieve stored files, send `kirim semua file`, `download semua foto`, or select positions from the newest-first `/checkfiles` order with `kirim file 1,2,3` or `download file 1,2,3`.
+
 ## Notes
 
 - The MiMo URL, model, and credentials are environment variables because provider endpoint/model names can vary by account and region.

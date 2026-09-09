@@ -108,7 +108,7 @@ func main() {
 	health.NewWithDiagnostics(store, r2, redisClient, aiClient, wa, cfg).Register(app)
 	authhttp.New(store, secret, time.Duration(cfg.JWTTTLHours)*time.Hour).Register(app)
 	users.New(store).RegisterPublic(app)
-	whatsappHandler := whatsapphttp.New(aiClient, store, wa, cfg.SignupURL, redisClient)
+	whatsappHandler := whatsapphttp.New(aiClient, store, wa, r2, cfg.SignupURL, redisClient)
 	whatsappHandler.Register(app)
 	telegramHandler := telegramhttp.New(aiClient, store, tg, r2, cfg.SignupURL, redisClient)
 	telegramHandler.Register(app)

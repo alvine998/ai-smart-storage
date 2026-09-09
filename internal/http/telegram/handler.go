@@ -15,6 +15,7 @@ import (
 
 	"ai-smart-storage/internal/ai"
 	"ai-smart-storage/internal/database"
+	"ai-smart-storage/internal/filecommands"
 	"ai-smart-storage/internal/http/middleware"
 	r2storage "ai-smart-storage/internal/storage"
 	service "ai-smart-storage/internal/telegram"
@@ -36,7 +37,8 @@ type Handler struct {
 
 const chatSystemPrompt = `You are the AI Smart Storage assistant on Telegram. You help users store and find their files.
 - Users upload files by sending a document or photo to this chat.
-- To search files, users send "cari file <name>", "cari gambar <name>" or "find my <name>"; the bot replies with matching files.
+- To search and retrieve files, users send "cari file <name>", "kirim file <name>", "download file <name>", "kirim semua foto", "download semua file", or "find my <name>"; the bot replies with matching files.
+- For multiple files, use "kirim file 1,2,3" or "download file 1,2,3". File numbers follow the /checkfiles order.
 - Slash commands: /sync (link account), /link <email>, /balance (storage and quota usage).
 - If a user asks how to do something, explain the relevant command briefly. Reply in the user's language and keep answers short.`
 
@@ -102,7 +104,12 @@ func (h *Handler) Receive(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusOK)
 	}
 	if len(msg.Photo) > 0 {
-		largest := msg.Photo[len(msg.Photo)-1]
+		largest := msg.Photo[0]
+		for _, photo := range msg.Photo[1:] {
+			if photo.FileSize > largest.FileSize {
+				largest = photo
+			}
+		}
 		go h.handleMedia(msg.Chat.ID, largest.FileID, fmt.Sprintf("photo_%d.jpg", msg.Date), largest.FileSize, msg.Caption)
 		return c.SendStatus(fiber.StatusOK)
 	}
@@ -145,6 +152,18 @@ func (h *Handler) Receive(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusOK)
 	}
 	lower := strings.ToLower(msg.Text)
+	if command, ok, err := filecommands.Parse(lower); ok {
+		if err != nil {
+			go h.sendNotice(c.Context(), msg.Chat.ID, "Usage: kirim semua file, kirim semua foto, atau kirim file 1,2,3")
+		} else if command.All || len(command.Positions) > 0 {
+			go h.handleBatchFiles(msg.Chat.ID, command)
+		} else if command.Query != "" {
+			go h.handleFindFile(msg.Chat.ID, msg.From.ID, command.Query)
+		} else {
+			go h.sendNotice(c.Context(), msg.Chat.ID, "Usage: kirim semua file, kirim semua foto, atau kirim file 1,2,3")
+		}
+		return c.SendStatus(fiber.StatusOK)
+	}
 	if query, ok := extractSearchQuery(lower); ok {
 		if query == "" {
 			go h.sendNotice(c.Context(), msg.Chat.ID, "Usage: Find my <filename>")
@@ -507,23 +526,9 @@ func (h *Handler) handleFindFile(chatID int64, fromID int64, query string) {
 			return
 		}
 		h.sendNotice(ctx, chatID, fmt.Sprintf("Found: %s\nSending file...", doc.FileName))
-		object, err := h.r2.Get(ctx, doc.R2Key)
-		if err != nil {
-			log.Printf("telegram find file: R2 get: %v", err)
-			h.sendNotice(ctx, chatID, fmt.Sprintf("Found: %s (ID: %d)\nFailed to download from storage.", doc.FileName, doc.ID))
-			return
-		}
-		defer object.Close()
-		data, err := io.ReadAll(object)
-		if err != nil {
-			log.Printf("telegram find file: read object: %v", err)
-			h.sendNotice(ctx, chatID, fmt.Sprintf("Found: %s (ID: %d)\nFailed to read file.", doc.FileName, doc.ID))
-			return
-		}
-		if err := h.tg.SendDocument(ctx, chatID, doc.FileName, data, doc.MimeType, ""); err != nil {
-			log.Printf("telegram find file: send document: %v", err)
+		if err := h.sendStoredDocument(ctx, chatID, doc); err != nil {
+			log.Printf("telegram find file: %v", err)
 			h.sendNotice(ctx, chatID, fmt.Sprintf("Found: %s (ID: %d)\nFailed to send file.", doc.FileName, doc.ID))
-			return
 		}
 		return
 	}
@@ -535,6 +540,70 @@ func (h *Handler) handleFindFile(chatID int64, fromID int64, query string) {
 	}
 	list.WriteString("\nSend the exact filename to download it.")
 	h.sendNotice(ctx, chatID, list.String())
+}
+
+func (h *Handler) handleBatchFiles(chatID int64, command filecommands.Command) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("telegram batch files panic: %v", r)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	if h.store == nil || h.r2 == nil || h.tg == nil {
+		h.sendNotice(ctx, chatID, "Storage is not available.")
+		return
+	}
+	access, err := h.telegramAccess(ctx, chatID)
+	if errors.Is(err, database.ErrWhatsAppAccessNotFound) {
+		h.sendNotice(ctx, chatID, "Account not linked. Send /sync to link your account.")
+		return
+	}
+	if err != nil {
+		log.Printf("telegram batch files: check access: %v", err)
+		return
+	}
+	selection, err := filecommands.SelectWithMissing(ctx, h.store, access.UserID, command)
+	if err != nil {
+		log.Printf("telegram batch files: select: %v", err)
+		h.sendNotice(ctx, chatID, "Failed to select files. Try again.")
+		return
+	}
+	if len(selection.Documents) == 0 {
+		if len(selection.Missing) > 0 {
+			h.sendNotice(ctx, chatID, fmt.Sprintf("File positions not found: %v", selection.Missing))
+		} else {
+			h.sendNotice(ctx, chatID, "No matching files found.")
+		}
+		return
+	}
+	h.sendNotice(ctx, chatID, fmt.Sprintf("Sending %d file(s)...", len(selection.Documents)))
+	sent, failed := 0, len(selection.Missing)
+	for _, document := range selection.Documents {
+		if err := h.sendStoredDocument(ctx, chatID, document); err != nil {
+			failed++
+			log.Printf("telegram batch files: send %s: %v", document.FileName, err)
+			continue
+		}
+		sent++
+	}
+	h.sendNotice(ctx, chatID, fmt.Sprintf("Finished: %d sent, %d failed.", sent, failed))
+}
+
+func (h *Handler) sendStoredDocument(ctx context.Context, chatID int64, document database.Document) error {
+	object, err := h.r2.Get(ctx, document.R2Key)
+	if err != nil {
+		return fmt.Errorf("R2 get: %w", err)
+	}
+	defer object.Close()
+	data, err := io.ReadAll(object)
+	if err != nil {
+		return fmt.Errorf("read file: %w", err)
+	}
+	if err := h.tg.SendDocument(ctx, chatID, document.FileName, data, document.MimeType, ""); err != nil {
+		return fmt.Errorf("send document: %w", err)
+	}
+	return nil
 }
 
 func (h *Handler) handleCheckBalance(chatID int64) {
@@ -633,8 +702,9 @@ func (h *Handler) handleHelp(chatID int64) {
 	defer cancel()
 	msg := `🤖 AI Smart Storage — Help
 
-📎 Send any document or photo to store it in your cloud storage.
-🔍 Search files: send "cari file <name>" or "find my <name>" — the bot replies with matches and can send them back.
+📎 Send one or more documents or photos to store them in your cloud storage.
+🔍 Search files: send "cari file <name>", "kirim file <name>", "download file <name>", or "find my <name>" — the bot replies with matches and can send them back.
+📦 Batch files: "kirim semua file", "download semua foto", or "kirim file 1,2,3". Numbers follow the /checkfiles order.
 📋 /checkfiles — list all your stored files.
 💰 /balance — view your storage and AI usage.
 🔗 /sync — link your Telegram account (share your contact).
@@ -666,6 +736,18 @@ func extractSearchQuery(text string) (string, bool) {
 	// "cari <query>"
 	case strings.HasPrefix(text, "cari "):
 		q = strings.TrimPrefix(text, "cari ")
+	case text == "kirim file", strings.HasPrefix(text, "kirim file "):
+		q = strings.TrimPrefix(text, "kirim file")
+	case text == "kirimkan file", strings.HasPrefix(text, "kirimkan file "):
+		q = strings.TrimPrefix(text, "kirimkan file")
+	case text == "download file", strings.HasPrefix(text, "download file "):
+		q = strings.TrimPrefix(text, "download file")
+	case text == "unduh file", strings.HasPrefix(text, "unduh file "):
+		q = strings.TrimPrefix(text, "unduh file")
+	case text == "ambil file", strings.HasPrefix(text, "ambil file "):
+		q = strings.TrimPrefix(text, "ambil file")
+	case text == "send file", strings.HasPrefix(text, "send file "):
+		q = strings.TrimPrefix(text, "send file")
 	default:
 		return "", false
 	}
